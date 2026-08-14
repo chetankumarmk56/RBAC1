@@ -7,32 +7,38 @@ PostgreSQL**.
 
 The app has two pages behind a sidebar: **Chat**, where the whole data demonstration
 happens, and **Access control**, a console visible only to a super admin for editing
-which roles may use which tools.
+what each role may reach — which **tools**, which **data** (datasets, columns and how
+many employees' rows), and which **language models**.
 
 The point of the POC is the boundary: the LLM decides *what to try*, the backend
 decides *what is allowed*.
 
 ```
-User
+User  (picks a model, or lets their role's best one answer)
   ↓
 Chat interface
   ↓
-Planner agent            (Claude — identifies intent, selects an agent)
+Model gate               ← RBAC: may this role run that model? refused before any LLM call
   ↓
-Role-based agent         (Claude — selects a tool)
+Planner agent            (identifies intent, selects an agent)
+  ↓
+Role-based agent         (selects a tool)
   ↓
 Tool
   ↓
 RBAC permission check    ← plain Python, permissions read from PostgreSQL
   ↓
-PostgreSQL               ← only reached when the check passes
+PostgreSQL               ← only reached when the check passes; rows narrowed by the role's scope
+  ↓
+Field policy             ← columns the role may not see are stripped from the result
   ↓
 Tool result → agent → planner
   ↓
 Final response → user
 ```
 
-Every tool request, allowed or denied, is written to `audit_logs`.
+Every request that is gated — a tool call, or a model choice — is written to
+`audit_logs`, allowed or denied.
 
 ---
 
@@ -42,7 +48,7 @@ Every tool request, allowed or denied, is written to `audit_logs`.
 | --------- | ------------------------------------------------------------------------ |
 | Backend   | FastAPI + Python 3.11                                                    |
 | Database  | PostgreSQL 16 (Docker), SQLAlchemy 2.0, Alembic                          |
-| LLM       | Claude (`claude-opus-5`), falling back to Gemini (`gemini-3.1-flash-lite`) |
+| LLM       | Claude Opus / Sonnet / Haiku and Gemini — per-role, granted like a permission |
 | Frontend  | React 18 + Vite + TypeScript                                             |
 | Auth      | JWT bearer tokens, bcrypt password hashing                               |
 
@@ -73,7 +79,7 @@ pip install -r requirements.txt
 cp .env.example .env          # then edit .env and set ANTHROPIC_API_KEY
 
 alembic upgrade head          # create the schema
-python seed.py                # roles, permissions, users, dummy HR data
+python seed.py                # roles, permissions, model + data access, users, HR data
 
 uvicorn main:app --reload --port 8010
 ```
@@ -108,8 +114,23 @@ All five share the password `password123` (configurable via `SEED_PASSWORD`).
 | `admin@example.com`        | admin       | the nine read permissions, including `audit:read` and `permissions:manage` |
 | `superadmin@example.com`   | super_admin | all ten — the only role with `permissions:write`                         |
 
-The supervisor login is also linked to an employee row, so their data is scoped to
-themselves plus their four direct reports — 5 of the 12 employees.
+Each role also holds a set of **models**, a **row scope** and a set of **visible
+columns** — all editable from the Access control page, all enforced server-side:
+
+| Role        | Models (best first)                   | Rows | Columns withheld                                                       |
+| ----------- | ------------------------------------- | ---- | ---------------------------------------------------------------------- |
+| supervisor  | Sonnet · Haiku · Gemini               | team | `leave.reason`                                                          |
+| analyst     | Haiku · Gemini                        | all  | `employees.email`, all four payroll figures, `performance.reviewer/comments`, `leave.reason` |
+| hr          | Sonnet · Haiku · Gemini               | all  | `payroll.bonus`, `payroll.deductions`                                   |
+| admin       | Opus · Sonnet · Haiku · Gemini        | all  | none                                                                    |
+| super_admin | Opus · Sonnet · Haiku · Gemini        | all  | none                                                                    |
+
+The supervisor login is linked to an employee row, so with row scope `team` their
+data is themselves plus their four direct reports — 5 of the 12 employees.
+
+Column rules apply even to data the role cannot currently reach, so they are already
+in force the moment a dataset is granted: give the analyst payroll and they get the
+table with the salary columns missing.
 
 **admin vs super_admin.** An admin can *read* everything, including the RBAC
 configuration. Only a super admin can *change* it. That split is the whole difference
@@ -133,9 +154,15 @@ between the two roles, and it is enforced the same way as every other permission
 | admin        | "Give the analyst role access to payroll."| **DENIED** — no `permissions:write` |
 | super_admin  | "Show me the tool access matrix."        | ALLOWED                        |
 | super_admin  | "Give the analyst role access to payroll."| ALLOWED — written to the database |
+| analyst      | *picks Claude Opus in the composer*      | **DENIED** — no model call made |
+| super_admin  | "Which models can the analyst role use?" | ALLOWED — `get_model_access`   |
+| super_admin  | "Let the analyst use Claude Opus."       | ALLOWED — `set_model_access`   |
+| super_admin  | "Hide the bonus column from HR."         | ALLOWED — `set_field_access`   |
+| super_admin  | "Limit the analyst to their own department." | ALLOWED — `set_data_scope` |
 
-Each reply carries a trace strip showing the agent, the tool, the permission that
-was required, the RBAC decision, the row count and which model answered.
+Each reply carries a trace strip showing the agent, the tool, the permission that was
+required, the RBAC decision, the row count, how many columns the field policy withheld,
+and which model answered.
 
 ### Watching the pipeline run
 
@@ -144,8 +171,10 @@ per stage. The interface shows **one status line at a time**, each replacing the
 so the pipeline reads as a sequence rather than a growing list:
 
 ```
-● Planner agent is thinking
+● Claude Sonnet allowed for supervisor
         ↓  (replaced in place)
+● Planner agent is thinking
+        ↓
 ● Supervisor agent selected
         ↓
 ● get_payroll tool selected
@@ -158,7 +187,10 @@ so the pipeline reads as a sequence rather than a growing list:
 ```
 
 On a denied request the line turns red and reads *"Permission denied — payroll:read.
-Database not queried."* When the answer arrives the status line disappears and the
+Database not queried."* A model the role does not hold stops the run one step
+earlier: *"Model access denied — Claude Opus. No model was called."* When columns are
+withheld, a *"Field policy withheld base_salary, bonus…"* line appears between the
+query and the answer. When the answer arrives the status line disappears and the
 trace chips take its place.
 
 The narration comes from the pipeline itself, not a timer: `run_chat_events()` in
@@ -223,60 +255,130 @@ boundary move while the app is running:
 3. **super_admin** — "Revoke payroll access from the analyst role."
 4. **analyst** — "Show me employee salaries." → **DENIED** again.
 
+The same sequence works for a model and for a single column:
+
+1. **analyst** — pick **Claude Opus** in the composer and send anything.
+   → **DENIED** at the model gate; no provider was called.
+2. **super_admin** — "Let the analyst role use Claude Opus."
+   → `set_model_access` writes it to `role_models`.
+3. **analyst** — pick Claude Opus again. → it answers, and the trace chip says
+   `claude-opus`.
+4. **super_admin** — "Give the analyst role access to payroll."
+   → the analyst now gets the payroll table with **4 fields withheld** — no salary,
+   bonus, deductions or net pay, and no total either.
+5. **super_admin** — "Let the analyst see base salary."
+   → `set_field_access` adds the one column; the next answer includes it.
+
 No restart, no re-seed. `Principal` is rebuilt from the database on every message, so
-a change lands on that role's next turn. Both the grant and the revoke are written to
+a change lands on that role's next turn. Every one of these writes is recorded in
 `audit_logs` with a description of what changed.
 
 The same changes can be made from the **Access control** page — see below.
 
 Two guardrails, both enforced in the tool rather than the prompt:
 
-- The `super_admin` role itself cannot be edited, so a super admin cannot revoke their
-  own `permissions:write` and lock everyone out (`PROTECTED_ROLES`).
-- `grant_tool_access` / `revoke_tool_access` cannot be granted to anyone, so a second
-  super admin can only be created in `seed.py`.
+- The `super_admin` role itself cannot be edited — permissions, models, columns or
+  scope — so a super admin cannot cut off their own access and lock everyone out
+  (`PROTECTED_ROLES`).
+- The `permissions:write` tools cannot be granted to anyone, so a second super admin
+  can only be created in `seed.py`.
+
+---
+
+## Choosing a model
+
+The composer has a model picker. **Auto** runs the most capable model the role holds;
+naming one runs that one. Models the role does *not* hold are still listed, marked
+with a 🔒 — picking one and sending is the shortest demonstration of a model denial:
+
+```
+analyst picks Claude Opus  →  Model access denied — Claude Opus. No model was called.
+                              "Your role (analyst) is not allowed to use Claude Opus.
+                               Models you can use: Claude Haiku, Gemini. Choose one of
+                               those in the model picker and send your message again."
+```
+
+The refusal is decided by `check_model_access()` before the planner runs, so no
+provider is contacted, and it is written to `audit_logs` with
+`required_permission = model:claude-opus` — a model decision reads like any other RBAC
+decision in the trail. The refusal sentence is deterministic Python, because a role
+with no model at all has nothing to write it with.
+
+When the model does run, the rest of the role's models sit behind it as fallbacks: a
+supervisor on Sonnet drops to Haiku, then Gemini, if a call fails. The trace chip names
+the model that actually answered, so a fallback is visible rather than silent.
 
 ---
 
 ## The Access control page
 
-Sign in as the super admin and pick **Access control** in the sidebar. It shows a
-tool × role matrix — tick a box to grant a role access to a tool, untick to revoke.
-Locked cells carry a tooltip explaining why: the `super_admin` column is the protected
-role, and the two `permissions:write` rows are the tools that manage RBAC itself.
+Sign in as the super admin and pick **Access control** in the sidebar. Three tabs.
 
-The page is not a parallel implementation. It posts to `/api/admin/access`, which runs
-the **same** `grant_tool_access` / `revoke_tool_access` tools the chat agent uses — so
+Everything reads in plain language — *Payroll*, *Read payroll*, *Super admin* — with
+the identifier it has in the database (`get_payroll`, `payroll:read`) printed underneath,
+because that identifier is what the audit log records. The mapping lives in
+[frontend/src/labels.ts](frontend/src/labels.ts) and falls back to a tidied version of
+the identifier, so a tool or permission added on the backend still reads sensibly
+before it is named there. The same labels are used for the trace chips under each chat
+reply, which carry the raw identifier in a tooltip.
+
+**Tools** — the original tool × role matrix. Tick to grant, untick to revoke. Locked
+cells carry a tooltip: the `super_admin` column is the protected role, and the
+`permissions:write` rows are the tools that manage RBAC itself.
+
+**Data** — access to data at three levels:
+
+- *Row access*: each role's scope — `all`, `department`, `team` or `self`. It decides
+  which employees' rows any dataset returns, and is the setting that used to be a
+  hardcoded "supervisors see their own team" rule.
+- *Dataset access*: one checkbox per dataset per role. It is the same grant as the
+  tool row on the Tools tab — one permission, one row in `role_permissions`.
+- *Columns*: one checkbox per field per role. A withheld column is stripped from the
+  tool result before the agent sees it, together with any total computed from it
+  (withhold `net_pay` and `total_net_pay` goes too) and any aggregate of it in
+  `get_analytics` / `get_reports`, so the model can neither quote nor reconstruct it.
+  Identity columns are marked `identity` and cannot be withheld — removing the name
+  from every row would make the answer meaningless; remove the dataset instead.
+
+**Models** — a model × role matrix. A model whose provider has no API key on this
+server is tagged `no key`, so you can tell "not granted" from "not configured".
+
+The page is not a parallel implementation. Each control posts to `/api/admin/*`, which
+runs the **same** tools the chat agent uses — `grant_tool_access` /
+`revoke_tool_access`, `set_model_access`, `set_field_access`, `set_data_scope` — so
 console and chat share one RBAC check and one audit trail. Console changes are tagged
 `admin_console` in `audit_logs`, chat changes carry the agent name, so you can tell
 them apart.
 
-**Hiding the nav item is presentation, not security.** Both console endpoints are
-gated on `permissions:write` through the `require_permission` dependency, which calls
-the same `check_permission` the tool layer calls:
+**Hiding the nav item is presentation, not security.** Every console endpoint is gated
+on `permissions:write` through the `require_permission` dependency, which calls the
+same `check_permission` the tool layer calls:
 
-| Caller       | `GET /api/admin/access-matrix` | `POST /api/admin/access` |
+| Caller       | `GET /api/admin/access-matrix` | `POST /api/admin/access`, `/model-access`, `/field-access`, `/data-scope` |
 | ------------ | ------------------------------ | ------------------------ |
 | super_admin  | 200                            | 200                      |
 | admin        | 403                            | 403                      |
 | analyst      | 403                            | 403                      |
 | no token     | 401                            | 401                      |
 
-An admin can still *read* the same information through chat — `get_role_permissions`
-and `get_tool_permissions` only need `permissions:manage`. What they cannot do is
-change it, from either surface.
+An admin can still *read* the same information through chat — `get_role_permissions`,
+`get_tool_permissions`, `get_model_access` and `get_data_access` only need
+`permissions:manage`. What they cannot do is change it, from either surface.
 
 ---
 
 ## How RBAC is enforced
 
-Four rules keep authorization out of the model's hands.
+Four rules keep authorization out of the model's hands, and three further rules decide
+how much of the allowed data comes back.
 
 **1. The role comes from the database, never the client or the LLM.**
 The JWT carries only a user id and email. On every request `load_principal()`
-([backend/rbac/service.py](backend/rbac/service.py)) joins `users → roles →
-role_permissions → permissions` and builds a `Principal`. A client cannot send a
-role, a permission or a tool name — the chat request body is just `{"message": "..."}`.
+([backend/rbac/service.py](backend/rbac/service.py)) reads that user's permissions,
+models, row scope and visible columns out of PostgreSQL and builds a `Principal`. A
+client cannot send a role, a permission or a tool name — the chat request body is just
+`{"message": "…", "model": "claude-haiku"}`, and the model is a *request*, checked
+against the role before anything runs.
 
 **2. The check happens inside the tool layer, before any query.**
 `execute_tool()` ([backend/tools/base.py](backend/tools/base.py)) calls
@@ -286,7 +388,9 @@ request never issues SQL:
 ```python
 def execute_tool(tool: Tool, ctx: ToolContext, tool_input: dict) -> ToolResult:
     check_permission(ctx.principal, tool.required_permission)   # raises on failure
-    return tool.handler(ctx, tool_input)                        # only reached if allowed
+    # only reached if allowed; the result is then stripped of columns this role
+    # may not see, before the agent or the responder ever sees them
+    return apply_field_policy(tool, ctx, tool.handler(ctx, tool_input))
 ```
 
 **3. Agents are not gatekeepers — deliberately.**
@@ -299,11 +403,25 @@ untestable. What differs between agents is specialisation, not privilege.
 **4. Both outcomes are audited.**
 `log_tool_request()` ([backend/rbac/audit.py](backend/rbac/audit.py)) writes the user,
 role, agent, tool, required permission, decision and prompt to `audit_logs` for
-allowed and denied requests alike.
+allowed and denied requests alike — model denials included, keyed as `model:<key>`.
 
-Beyond permissions there is one row-level rule: a supervisor sees only their own
-team (`visible_employee_ids()`). That is data *scoping*, not authorization — a
-supervisor still needs `payroll:read` to reach payroll at all.
+### The three narrowing rules
+
+Permissions decide *whether* a tool runs. Three further rules decide *how much* comes
+back, and none of them is visible to the model:
+
+| Rule       | Where                                          | Effect                                              |
+| ---------- | ---------------------------------------------- | --------------------------------------------------- |
+| Model      | `check_model_access()`, before the planner      | Refuses a model the role does not hold — no LLM call |
+| Row scope  | `visible_employee_ids()`, inside each handler   | `all` / `department` / `team` / `self`               |
+| Field policy | `apply_field_policy()`, inside `execute_tool` | Strips withheld columns and their derived totals     |
+
+Row scope and the field policy are *scoping*, not authorization — a supervisor still
+needs `payroll:read` to reach payroll at all. Redaction happens centrally in
+`execute_tool`, so a new tool that declares a dataset inherits it without writing any
+redaction code; the two handlers that fold a figure into their prose summary ask the
+policy directly (`shows(ctx, "payroll", "net_pay")`) rather than emitting a total the
+caller may not see.
 
 ---
 
@@ -317,18 +435,23 @@ python verify_rbac.py       # every tool × every role, plus leakage and scope c
 python verify_pipeline.py   # the documented prompts, with a stubbed LLM
 ```
 
-`verify_rbac.py` prints the full 12-tool × 5-role decision matrix and checks three
+`verify_rbac.py` prints the full 17-tool × 5-role decision matrix and checks five
 things: every outcome matches the caller's permissions **as stored in PostgreSQL**;
 every denied call issues **zero SQL statements** (counted with a SQLAlchemy event
-listener, so "the database is never queried" is measured, not asserted); and a
-supervisor sees fewer employee rows than an admin. It also reports any drift from the
-seeded baseline, which is expected once a super admin has changed something.
+listener, so "the database is never queried" is measured, not asserted); each role's
+row scope really is as narrow as it claims; a withheld column appears **nowhere** in
+that role's results, at any depth of the payload, including in derived totals; and
+`check_model_access` allows exactly the models the role holds. It also reports any
+drift from the seeded baseline, which is expected once a super admin has changed
+something.
 
-`verify_pipeline.py` replaces only the two Claude calls with deterministic keyword
-routing and runs the real orchestrator, RBAC gate, permission writes and audit
-logging. Its super-admin sequence grants payroll to the analyst, proves the analyst
-can then read it, revokes it, proves the denial is back — and finally asserts the
-analyst's permissions match the seeded baseline again, so the run leaves no residue.
+`verify_pipeline.py` replaces only the LLM calls with deterministic keyword routing
+and runs the real orchestrator, RBAC gate, permission writes and audit logging. Its
+super-admin sequence grants payroll to the analyst, proves the analyst can then read
+it, revokes it, proves the denial is back — and finally asserts the analyst's
+permissions match the seeded baseline again, so the run leaves no residue. A second
+pass drives the model gate: a role asking for a model it does not hold is refused
+without a tool ever being chosen, and one asking for a model it holds passes through.
 
 Both exit non-zero on any mismatch.
 
@@ -339,22 +462,24 @@ Both exit non-zero on any mismatch.
 ```
 backend/
   agents/
-    llm.py            Provider façade with Claude → Gemini failover
+    llm.py            LLMRun: the models a message may use, tried in order
     provider_base.py  LLMUnavailable and the Provider protocol
     provider_claude.py / provider_gemini.py
     planner.py        Intent + agent routing, and the final response writer
     role_agents.py    The four role agents and their system prompts
-    executor.py       The pipeline: plan → select tool → RBAC → DB → respond
+    executor.py       The pipeline: model gate → plan → tool → RBAC → DB → respond
   tools/
-    base.py           Tool contract, ToolContext, execute_tool (the RBAC gate)
+    base.py           Tool contract, execute_tool (RBAC gate), row scope, field policy
     registry.py       Tool catalogue and Claude-facing schemas
     payroll_tools.py  get_payroll
     hr_tools.py       get_employee, get_attendance, get_performance, get_leave
     analytics_tools.py get_analytics, get_reports
-    admin_tools.py    Audit trail, RBAC matrix, grant/revoke tool access
+    admin_tools.py    Audit trail, RBAC matrix, and the five access-changing tools
   rbac/
     permissions.py    Permission vocabulary, role → permission matrix, protected roles
-    service.py        Principal loading and check_permission
+    model_catalog.py  The model catalogue and the seeded role → model baseline
+    datasets.py       Datasets, their columns, row scopes, and the seeded baseline
+    service.py        Principal loading, check_permission, check_model_access
     audit.py          Audit-log writes
   auth/
     security.py       bcrypt hashing, JWT encode/decode
@@ -375,6 +500,7 @@ frontend/
     components/       Sidebar, ChatMessage, ChatInput, LiveStatus, Markdown
     pages/            LoginPage, ChatPage, AccessControlPage
     services/api.ts   fetch wrapper, token storage
+    labels.ts         Display names for tools, permissions, roles and models
     types/index.ts    Shared types
     App.tsx           Session restore, sidebar shell, page switching
 ```
@@ -395,23 +521,39 @@ frontend/
 | `get_audit_logs`       | `audit:read`         | The tool-access audit trail                        |
 | `get_role_permissions` | `permissions:manage` | Roles and the permissions granted to each          |
 | `get_tool_permissions` | `permissions:manage` | Tool-by-tool matrix of which roles can run what    |
+| `get_model_access`     | `permissions:manage` | Which models each role may run                     |
+| `get_data_access`      | `permissions:manage` | Each role's row scope and visible columns          |
 | `grant_tool_access`    | `permissions:write`  | **Writes** — gives a role access to a tool         |
 | `revoke_tool_access`   | `permissions:write`  | **Writes** — removes a role's access to a tool     |
+| `set_model_access`     | `permissions:write`  | **Writes** — allows or stops a role using a model  |
+| `set_field_access`     | `permissions:write`  | **Writes** — shows or withholds one column         |
+| `set_data_scope`       | `permissions:write`  | **Writes** — sets a role's row reach               |
 
 `get_analytics` and `get_reports` deliberately exclude compensation, so
-`analytics:read` cannot become a back door to salary data.
+`analytics:read` cannot become a back door to salary data. Each block of statistics is
+also tied to the column it aggregates — hide `performance.rating` from a role and its
+rating averages disappear from analytics too, so an aggregate cannot be a back door
+around the field policy either.
 
-The last two are the only tools that write. They edit `role_permissions`, which is
-the same table `load_principal()` reads on every request — so the RBAC system
-configures itself through its own enforcement path rather than a side channel.
+The last five are the only tools that write. They edit `role_permissions`,
+`role_models`, `role_field_access` and `role_data_scope` — the same tables
+`load_principal()` reads on every request — so the RBAC system configures itself
+through its own enforcement path rather than a side channel.
 
 ---
 
 ## Database schema
 
-`users`, `roles`, `permissions`, `role_permissions`, `employees`, `payroll`,
-`attendance`, `performance`, `leave_records`, `audit_logs`, `conversations`,
-`chat_messages`.
+`users`, `roles`, `permissions`, `role_permissions`, `role_models`,
+`role_field_access`, `role_data_scope`, `employees`, `payroll`, `attendance`,
+`performance`, `leave_records`, `audit_logs`, `conversations`, `chat_messages`.
+
+The three access tables are keyed by role: `role_models(role_id, model_key)`,
+`role_field_access(role_id, dataset_key, field_key)` and
+`role_data_scope(role_id, scope)`. Migration `0003` creates them and back-fills every
+existing role from the seeded baseline, so an upgrade leaves the app configured rather
+than locked out — and row scope back-fills to exactly what the code did before it
+existed: `team` for supervisor, `all` for everyone else.
 
 Seed data: 12 employees across 4 departments with reporting lines, 3 months of
 payroll, 60 days of attendance, 2 review cycles, and 8 leave records. Dates are
@@ -425,21 +567,32 @@ generated relative to today, so "who is on leave right now" always returns rows.
 | Method | Path                       | Requires            | Notes                                       |
 | ------ | -------------------------- | ------------------- | ------------------------------------------- |
 | `POST` | `/api/auth/login`          | —                   | `{email, password}` → token + user info     |
-| `GET`  | `/api/auth/me`             | any token           | Current user, role and permissions          |
-| `POST` | `/api/chat`                | any token           | `{message}` → `{reply, trace}`              |
+| `GET`  | `/api/auth/me`             | any token           | Current user, role, permissions, models, scope |
+| `GET`  | `/api/models`              | any token           | The picker's options — locked ones included |
+| `POST` | `/api/chat`                | any token           | `{message, model?}` → `{reply, trace}`      |
 | `POST` | `/api/chat/stream`         | any token           | The same work as SSE, one frame per stage   |
 | `GET`  | `/api/conversations`       | any token           | The caller's own chat history               |
 | `GET`  | `/api/conversations/{id}`  | ownership           | One conversation with its messages          |
 | `DELETE` | `/api/conversations/{id}`| ownership           | Delete a conversation                       |
-| `GET`  | `/api/admin/access-matrix` | `permissions:write` | Roles, tools and the current grant matrix   |
+| `GET`  | `/api/admin/access-matrix` | `permissions:write` | Roles, tools, models, datasets and scopes   |
 | `POST` | `/api/admin/access`        | `permissions:write` | `{role_name, tool_name, granted}` → matrix  |
+| `POST` | `/api/admin/model-access`  | `permissions:write` | `{role_name, model_key, granted}` → matrix  |
+| `POST` | `/api/admin/field-access`  | `permissions:write` | `{role_name, dataset, field, granted}` → matrix |
+| `POST` | `/api/admin/data-scope`    | `permissions:write` | `{role_name, scope}` → matrix               |
 | `GET`  | `/api/health`              | —                   | Status and whether an API key is configured |
 
 ---
 
 ## Notes on the LLM integration
 
-- Model: `claude-opus-5`, with adaptive thinking (on by default on this model).
+- Four models are on offer — `claude-opus-5`, `claude-sonnet-5`,
+  `claude-haiku-4-5-20251001` and `gemini-3.1-flash-lite`. The ids come from
+  `backend/.env` (`CLAUDE_OPUS_MODEL`, `CLAUDE_SONNET_MODEL`, `CLAUDE_HAIKU_MODEL`,
+  `GEMINI_MODEL`); *who may run them* comes from PostgreSQL.
+- The set a request may use is passed explicitly as an `LLMRun`, not held in a
+  ContextVar: the streaming endpoint resumes the pipeline generator from a thread
+  pool, and each resumption gets its own copy of the context, so per-request state
+  stashed between two `yield`s would be lost.
 - The planner uses **structured outputs** (`output_config.format`) so its routing
   decision always parses — no regex extraction, no retry loop.
 - Agents use tool-use with `disable_parallel_tool_use`, keeping one tool per turn so
@@ -449,22 +602,24 @@ generated relative to today, so "who is on leave right now" always returns rows.
 - Denials fall back to a deterministic sentence, so a permission refusal never depends
   on any model being available.
 
-### Gemini fallback
+### Failover across a role's models
 
-Claude is the primary. If a Claude call fails, the *same* call is retried on
-**`gemini-3.1-flash-lite`** and the user gets an answer anyway. Set `GEMINI_API_KEY`
-in `backend/.env` to enable it; leave it blank and the app runs on Claude alone.
+A role's models are also its failover chain, most capable first. If a call fails, the
+*same* call is retried on the next model the role holds — Sonnet → Haiku → Gemini for
+a supervisor — and the user gets an answer anyway. Set `GEMINI_API_KEY` in
+`backend/.env` to keep Gemini in the chain; leave it blank and the Claude tiers carry
+it alone.
 
 Failover triggers on any operational failure: missing or invalid key, network error,
 timeout, rate limit, 5xx, a refusal, or malformed output. It is not a retry of the
-same provider — Claude gets one attempt per call, then Gemini does.
+same model — each gets one attempt per call, then the next one runs.
 
 ```
 agents/
-  llm.py               façade: tries each provider in order, records which answered
+  llm.py               LLMRun: walks the role's models in order, records which answered
   provider_base.py     LLMUnavailable + the three-method Provider protocol
-  provider_claude.py   primary
-  provider_gemini.py   fallback
+  provider_claude.py   the three Claude tiers
+  provider_gemini.py   Gemini
 ```
 
 Both providers implement the same three calls — JSON-schema output, plain text, and
@@ -473,23 +628,24 @@ and `response_json_schema` take raw JSON Schema, which is exactly what the tool
 registry already produces for Claude. Gemini has no `effort` parameter, so that
 argument is accepted and ignored.
 
-`GET /api/health` reports the active chain, primary first:
+`GET /api/health` reports the catalogue and which models this server could actually
+run — `usable: false` means the provider behind that model has no API key:
 
 ```json
-{ "providers": ["claude", "gemini"], "claude_model": "claude-opus-5",
-  "gemini_model": "gemini-3.1-flash-lite" }
+{ "providers": ["claude", "gemini"],
+  "models": [{ "key": "claude-opus", "model_id": "claude-opus-5", "usable": true }, …] }
 ```
 
-**The fallback is visible, not silent.** Every chat reply carries a provider chip in
-its trace — grey for `claude`, amber for `gemini` — so you can see when the fallback
-answered. If every provider fails, the API still returns a readable message naming
-each failure rather than a 500:
+**The fallback is visible, not silent.** Every chat reply carries a model chip in its
+trace naming the model that actually answered — amber when a fallback ran — so a
+supervisor who asked for Sonnet and got Gemini can see it. If every model in the chain
+fails, the API still returns a readable message naming each failure rather than a 500:
 
 ```
 The assistant is unavailable right now.
-claude: Claude request failed: Error code: 401 …; gemini: Gemini request failed: 400 …
+claude-sonnet: Claude request failed: Error code: 401 …; gemini: Gemini request failed: 400 …
 ```
 
 Config: `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-3.1-flash-lite`), and
-`LLM_FALLBACK_ENABLED=false` to pin to Claude only. If `ANTHROPIC_API_KEY` is blank
-but `GEMINI_API_KEY` is set, Gemini becomes the primary.
+`LLM_FALLBACK_ENABLED=false` to keep Gemini as a last resort rather than a fallback —
+with it off, Gemini runs only when no Claude tier in the role's set is usable.

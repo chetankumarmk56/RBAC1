@@ -1,11 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
 
+import type { ModelOption } from '../types'
+
 interface Props {
   disabled: boolean
   onSend: (message: string) => void
+  /** Every model in the catalogue — locked ones included, so the boundary is visible. */
+  models: ModelOption[]
+  /** The selected model key, or '' for "the best one my role holds". */
+  model: string
+  onModelChange: (model: string) => void
+  /** Which model 'Auto' resolves to, or null when the role holds none. */
+  defaultModel: string | null
 }
 
-export default function ChatInput({ disabled, onSend }: Props) {
+export default function ChatInput({
+  disabled,
+  onSend,
+  models,
+  model,
+  onModelChange,
+  defaultModel,
+}: Props) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -31,6 +47,9 @@ export default function ChatInput({ disabled, onSend }: Props) {
       submit()
     }
   }
+
+  const selected = models.find((option) => option.key === model)
+  const auto = models.find((option) => option.key === defaultModel)
 
   return (
     <div className="composer-dock">
@@ -69,9 +88,34 @@ export default function ChatInput({ disabled, onSend }: Props) {
           </svg>
         </button>
       </form>
-      <p className="composer-hint">
-        Your role decides what comes back. The backend enforces it — not the model.
-      </p>
+
+      <div className="composer-foot">
+        {/* Locked models stay selectable on purpose: the server refuses them, which
+            is the point — the picker shows, the backend decides. */}
+        <label className={`model-picker${selected && !selected.allowed ? ' model-picker-blocked' : ''}`}>
+          <span className="model-picker-label">Model</span>
+          <select
+            value={model}
+            disabled={disabled}
+            onChange={(event) => onModelChange(event.target.value)}
+            title={selected?.blurb ?? 'Runs the most capable model your role holds.'}
+          >
+            <option value="">Auto{auto ? ` · ${auto.label}` : ''}</option>
+            {models.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+                {option.allowed ? '' : ' 🔒'}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <p className="composer-hint">
+          {selected && !selected.allowed
+            ? `Your role cannot use ${selected.label} — sending will be refused before any model is called.`
+            : 'Your role decides what comes back. The backend enforces it — not the model.'}
+        </p>
+      </div>
     </div>
   )
 }

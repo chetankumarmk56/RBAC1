@@ -9,12 +9,13 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from agents.llm import configured_providers
+from agents.llm import configured_providers, model_is_available
 from api.admin import router as admin_router
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
 from auth.router import router as auth_router
 from config import settings
+from rbac.model_catalog import MODEL_CATALOGUE
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -46,9 +47,12 @@ def health() -> dict:
     providers = configured_providers()
     return {
         "status": "ok",
-        "claude_model": settings.claude_model,
-        "gemini_model": settings.gemini_model,
-        # In order: the first entry is primary, later entries are fallbacks.
+        # The catalogue a super admin can hand out; `usable` is false when the
+        # provider behind a model has no credentials on this server.
+        "models": [
+            {"key": model.key, "model_id": model.model_id, "usable": model_is_available(model)}
+            for model in MODEL_CATALOGUE
+        ],
         "providers": providers,
         "llm_configured": bool(providers),
     }

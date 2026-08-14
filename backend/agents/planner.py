@@ -10,7 +10,7 @@ routes and writes.
 
 import json
 
-from agents.llm import complete_json, complete_text
+from agents.llm import LLMRun, complete_json, complete_text
 from agents.role_agents import AGENT_NAMES, agent_catalogue
 
 PLAN_SCHEMA = {
@@ -69,14 +69,18 @@ that is not in the data.
 table when listing several records.
 - Format money with a currency symbol and thousands separators, and percentages with one decimal.
 - If a scope note is present, mention the limit in one short clause (e.g. "across your team").
+- If fields were withheld, name them once in a short closing clause — e.g. "salary figures are \
+not available to your role" — and never estimate, infer or reconstruct a withheld value from \
+anything else in the data.
 - If the data is empty, say so directly rather than implying a problem occurred.
 
 Write in plain prose. No preamble, no restating the question, no offers of further help."""
 
 
-def make_plan(message: str) -> dict:
+def make_plan(run: LLMRun, message: str) -> dict:
     """Classify intent and choose an agent."""
     plan = complete_json(
+        run,
         system=_PLANNER_SYSTEM,
         user=message,
         schema=PLAN_SCHEMA,
@@ -94,6 +98,7 @@ def _truncate(payload: str, limit: int = 12000) -> str:
 
 
 def write_reply(
+    run: LLMRun,
     *,
     message: str,
     intent: str,
@@ -106,6 +111,7 @@ def write_reply(
     tool_summary: str | None = None,
     tool_data: object = None,
     scope_note: str | None = None,
+    withheld_fields: list[str] | None = None,
 ) -> str:
     """Compose the user-facing answer from the tool outcome."""
     lines = [
@@ -121,13 +127,18 @@ def write_reply(
         lines.append(f"Denial reason: {denial_reason}")
     if scope_note:
         lines.append(f"Scope note: {scope_note}")
+    if withheld_fields:
+        lines.append(
+            "Fields withheld from this role by the field-level policy (they are absent from "
+            f"the data below and must not be guessed): {', '.join(withheld_fields)}"
+        )
     if tool_summary:
         lines.append(f"Tool summary: {tool_summary}")
     if tool_data is not None:
         rendered = json.dumps(tool_data, indent=2, default=str, ensure_ascii=False)
         lines.append(f"Tool data (JSON):\n{_truncate(rendered)}")
 
-    return complete_text(system=_RESPONDER_SYSTEM, user="\n".join(lines), effort="low")
+    return complete_text(run, system=_RESPONDER_SYSTEM, user="\n".join(lines), effort="low")
 
 
 _SMALL_TALK_SYSTEM = """You are an internal HR assistant. The user's message does not require any \
@@ -139,6 +150,6 @@ role's permissions, which the backend enforces. Keep replies to a couple of sent
 invent HR data."""
 
 
-def write_direct_reply(message: str) -> str:
+def write_direct_reply(run: LLMRun, message: str) -> str:
     """Answer a greeting or meta question without touching any tool."""
-    return complete_text(system=_SMALL_TALK_SYSTEM, user=message, effort="low")
+    return complete_text(run, system=_SMALL_TALK_SYSTEM, user=message, effort="low")

@@ -92,16 +92,21 @@ ADMIN_AGENT = RoleAgent(
     title="Administrator agent",
     routes_for=(
         "Administrative and security questions: audit logs and access history, roles and "
-        "permissions, the RBAC configuration, requests to grant or revoke a role's access to "
-        "something, and any request that spans several domains at once including payroll."
+        "permissions, the RBAC configuration, which language models or which data fields a role "
+        "may use, requests to grant or revoke any of that, and any request that spans several "
+        "domains at once including payroll."
     ),
     specialisation=(
         "You serve system administrators. You handle the audit trail, roles and permissions, and "
         "cross-domain data requests. For access history use get_audit_logs. For the roles-and-"
         "permissions setup use get_role_permissions, or get_tool_permissions for a tool-by-tool "
-        "view of who can run what. When asked to change a role's access — give, grant, allow, "
-        "remove, revoke or block — use grant_tool_access or revoke_tool_access with the role and "
-        "the tool that serves that data; do not merely describe the change, make it."
+        "view of who can run what. For which LLM a role may run use get_model_access, and for row "
+        "scope and per-column visibility use get_data_access.\n"
+        "When asked to change access — give, grant, allow, remove, revoke or block — make the "
+        "change rather than describing it, picking the tool that matches what is being changed: "
+        "grant_tool_access / revoke_tool_access for a whole dataset or tool, set_model_access for "
+        "a language model, set_field_access for one column of a dataset, and set_data_scope for "
+        "how many employees' rows a role can see."
     ),
     tool_names=ALL_TOOL_NAMES,
 )

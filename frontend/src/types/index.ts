@@ -3,6 +3,10 @@ export interface UserInfo {
   full_name: string
   role: string
   permissions: string[]
+  /** Models this role may run, most capable first. */
+  models: string[]
+  /** Row reach: all | department | team | self. */
+  row_scope: string
 }
 
 export interface LoginResponse {
@@ -24,7 +28,28 @@ export interface ChatTrace {
   scope_note: string | null
   /** Which LLM answered: 'claude', or 'gemini' when the fallback took over. */
   provider: string | null
+  /** The model that answered, e.g. 'claude-sonnet'; on a model denial, the one refused. */
+  model: string | null
+  /** Columns the field-level policy removed before the agent saw the data. */
+  withheld_fields: string[]
   steps: string[]
+}
+
+/** One entry in the composer's model picker. */
+export interface ModelOption {
+  key: string
+  label: string
+  provider: string
+  blurb: string
+  /** False when the role may not run it — picking it still sends, and the server refuses. */
+  allowed: boolean
+  /** False when the server has no credentials for that provider. */
+  available: boolean
+}
+
+export interface ModelOptions {
+  models: ModelOption[]
+  default_model: string | null
 }
 
 export interface ChatResponse {
@@ -42,7 +67,16 @@ export interface ChatMessage {
 
 /* ------------------------------- live pipeline ---------------------------- */
 
-export type Stage = 'planner' | 'agent' | 'tool' | 'rbac' | 'database' | 'compose' | 'error'
+export type Stage =
+  | 'model'
+  | 'planner'
+  | 'agent'
+  | 'tool'
+  | 'rbac'
+  | 'database'
+  | 'fields'
+  | 'compose'
+  | 'error'
 
 export interface ProgressStep {
   stage: Stage
@@ -110,6 +144,12 @@ export interface RoleSummary {
   permissions: string[]
   /** Protected roles cannot be edited — the lockout guard. */
   protected: boolean
+  /** Models this role may run, most capable first. */
+  models: string[]
+  /** Row reach: all | department | team | self. */
+  row_scope: string
+  /** dataset key -> the fields of that dataset this role may see. */
+  fields: Record<string, string[]>
 }
 
 export interface ToolSummary {
@@ -123,9 +163,44 @@ export interface ToolSummary {
   roles_with_access: string[]
 }
 
+export interface ModelSummary {
+  key: string
+  label: string
+  provider: string
+  blurb: string
+  /** False when the server has no credentials for that provider. */
+  available: boolean
+  roles_with_access: string[]
+}
+
+export interface FieldSummary {
+  key: string
+  label: string
+  /** Identity columns that are always returned and cannot be withheld. */
+  locked: boolean
+}
+
+export interface DatasetSummary {
+  key: string
+  label: string
+  blurb: string
+  required_permission: string
+  tool: string
+  fields: FieldSummary[]
+  roles_with_access: string[]
+}
+
+export interface ScopeOption {
+  key: string
+  description: string
+}
+
 export interface AccessMatrix {
   roles: RoleSummary[]
   tools: ToolSummary[]
+  models: ModelSummary[]
+  datasets: DatasetSummary[]
+  scopes: ScopeOption[]
 }
 
 export interface AccessChangeResponse {

@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from models import Employee, Payroll
 from rbac.permissions import PAYROLL_READ
-from tools.base import Tool, ToolContext, ToolResult, scope_note, visible_employee_ids
+from tools.base import Tool, ToolContext, ToolResult, scope_note, shows, visible_employee_ids
 
 
 def get_payroll(ctx: ToolContext, args: dict) -> ToolResult:
@@ -57,10 +57,14 @@ def get_payroll(ctx: ToolContext, args: dict) -> ToolResult:
     total_net = round(sum(row["net_pay"] for row in rows), 2)
     periods = sorted({row["period"] for row in rows})
 
+    # The summary is prose, so field redaction cannot reach into it afterwards —
+    # the total is left out here when the role may not see net pay. The `net_pay`
+    # and `total_net_pay` keys themselves are stripped by `apply_field_policy`.
+    total_note = f" Total net pay {total_net}." if shows(ctx, "payroll", "net_pay") else ""
+
     return ToolResult(
         summary=(
-            f"{len(rows)} payroll record(s) for period(s) {', '.join(periods) or 'n/a'}. "
-            f"Total net pay {total_net}."
+            f"{len(rows)} payroll record(s) for period(s) {', '.join(periods) or 'n/a'}.{total_note}"
         ),
         data={"periods": periods, "total_net_pay": total_net, "records": rows},
         row_count=len(rows),
@@ -77,6 +81,7 @@ PAYROLL_TOOL = Tool(
     ),
     required_permission=PAYROLL_READ,
     domain="payroll",
+    dataset="payroll",
     input_schema={
         "type": "object",
         "properties": {

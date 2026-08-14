@@ -2,6 +2,11 @@
 
 Neither tool returns compensation figures — analytics is deliberately a
 non-payroll view, so `analytics:read` can never be used as a back door to salary.
+
+Each block of statistics is also tied to the column it aggregates, so a role that may
+not see a column does not get its average either: withholding
+`performance.rating` withholds the rating statistics too. Without that, an aggregate
+would be a back door around the field policy.
 """
 
 from datetime import date, timedelta
@@ -10,7 +15,15 @@ from sqlalchemy import func, select
 
 from models import Attendance, Employee, LeaveRecord, Performance
 from rbac.permissions import ANALYTICS_READ, REPORTS_READ
-from tools.base import Tool, ToolContext, ToolResult, scope_note, visible_employee_ids
+from tools.base import Tool, ToolContext, ToolResult, scope_note, shows, visible_employee_ids
+
+# (metric name, payload key, dataset, the column the block aggregates)
+BLOCKS: list[tuple[str, str, str, str]] = [
+    ("headcount", "headcount_by_department", "employees", "department"),
+    ("attendance", "attendance", "attendance", "attendance_rate_pct"),
+    ("performance", "performance", "performance", "rating"),
+    ("leave", "leave", "leave", "status"),
+]
 
 
 def _headcount_by_department(ctx: ToolContext, ids: list[int] | None) -> list[dict]:
@@ -96,21 +109,37 @@ def get_analytics(ctx: ToolContext, args: dict) -> ToolResult:
     except (TypeError, ValueError):
         days = 30
 
-    payload: dict = {}
-    if metric in ("all", "headcount"):
-        payload["headcount_by_department"] = _headcount_by_department(ctx, ids)
-    if metric in ("all", "attendance"):
-        payload["attendance"] = _attendance_stats(ctx, ids, days)
-    if metric in ("all", "performance"):
-        payload["performance"] = _performance_stats(ctx, ids)
-    if metric in ("all", "leave"):
-        payload["leave"] = _leave_stats(ctx, ids)
+    builders = {
+        "headcount_by_department": lambda: _headcount_by_department(ctx, ids),
+        "attendance": lambda: _attendance_stats(ctx, ids, days),
+        "performance": lambda: _performance_stats(ctx, ids),
+        "leave": lambda: _leave_stats(ctx, ids),
+    }
 
+    payload: dict = {}
+    withheld: list[str] = []
+    for name, key, dataset, column in BLOCKS:
+        if metric not in ("all", name):
+            continue
+        if not shows(ctx, dataset, column):
+            withheld.append(f"{dataset}.{column}")
+            continue
+        payload[key] = builders[key]()
+
+    note = (
+        f" Statistics for {', '.join(withheld)} are not available to this role."
+        if withheld
+        else ""
+    )
     return ToolResult(
-        summary=f"Aggregate analytics ({metric}). Compensation data is not included in analytics.",
+        summary=(
+            f"Aggregate analytics ({metric}). Compensation data is not included in "
+            f"analytics.{note}"
+        ),
         data=payload,
         row_count=len(payload),
         scope_note=scope_note(ctx, ids),
+        withheld_fields=withheld,
     )
 
 
@@ -129,17 +158,31 @@ def get_reports(ctx: ToolContext, args: dict) -> ToolResult:
     payload = {
         "generated_on": date.today().isoformat(),
         "total_employees": ctx.db.scalar(employee_count_stmt) or 0,
-        "headcount_by_department": _headcount_by_department(ctx, ids),
-        "attendance": _attendance_stats(ctx, ids, days),
-        "performance": _performance_stats(ctx, ids),
-        "leave": _leave_stats(ctx, ids),
+    }
+    builders = {
+        "headcount_by_department": lambda: _headcount_by_department(ctx, ids),
+        "attendance": lambda: _attendance_stats(ctx, ids, days),
+        "performance": lambda: _performance_stats(ctx, ids),
+        "leave": lambda: _leave_stats(ctx, ids),
     }
 
+    withheld: list[str] = []
+    for _name, key, dataset, column in BLOCKS:
+        if shows(ctx, dataset, column):
+            payload[key] = builders[key]()
+        else:
+            withheld.append(f"{dataset}.{column}")
+
+    note = f" {', '.join(withheld)} are withheld from this role." if withheld else ""
     return ToolResult(
-        summary=f"Summary report for {payload['total_employees']} employee(s) over the last {days} days.",
+        summary=(
+            f"Summary report for {payload['total_employees']} employee(s) over the last "
+            f"{days} days.{note}"
+        ),
         data=payload,
         row_count=payload["total_employees"],
         scope_note=scope_note(ctx, ids),
+        withheld_fields=withheld,
     )
 
 

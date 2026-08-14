@@ -59,7 +59,7 @@ def _tool_in(text: str) -> str:
     return "get_employee"
 
 
-def stub_plan(system: str, user: str, schema: dict, effort: str = "low") -> dict:
+def stub_plan(run, system: str, user: str, schema: dict, effort: str = "low") -> dict:
     text = user.lower()
     if any(word in text for word in ("hello", "hi ", "who are you", "what can you do")):
         agent = "none"
@@ -78,7 +78,7 @@ def stub_plan(system: str, user: str, schema: dict, effort: str = "low") -> dict
     return {"intent": f"stubbed intent for: {user}", "agent": agent, "reasoning": "stubbed routing"}
 
 
-def stub_select_tool(system: str, user: str, tools: list[dict], effort: str = "medium"):
+def stub_select_tool(run, system: str, user: str, tools: list[dict], effort: str = "medium"):
     text = user.lower()
     role = _role_in(text)
 
@@ -107,14 +107,14 @@ def stub_select_tool(system: str, user: str, tools: list[dict], effort: str = "m
     return "get_employee", {}, ""
 
 
-def stub_write_reply(**kwargs) -> str:
+def stub_write_reply(run, **kwargs) -> str:
     if kwargs["decision"] == "DENIED":
         tool = get_tool(kwargs["tool"])
         return executor._denial_fallback(tool, kwargs.get("role") or "?")
     return kwargs.get("tool_summary") or ""
 
 
-def stub_direct_reply(message: str) -> str:
+def stub_direct_reply(run, message: str) -> str:
     return "I can look up HR data for you, subject to your role's permissions."
 
 
@@ -146,6 +146,19 @@ CASES: list[tuple[str, str, str, str | None]] = [
     # The lockout guard: the super_admin role itself cannot be edited.
     ("superadmin@example.com", "Revoke payroll access from the super_admin role.", "ALLOWED", "protected"),
 ]
+
+# The model gate, which runs before any LLM does — (login, requested model, expected
+# gate outcome, expected reply fragment). PASSED means the gate let the request
+# through to the pipeline, where the ordinary tool check then applies.
+MODEL_CASES: list[tuple[str, str | None, str, str | None]] = [
+    ("analyst@example.com", "claude-opus", "DENIED", "not allowed to use Claude Opus"),
+    ("analyst@example.com", "not-a-model", "DENIED", "Models you can use"),
+    ("analyst@example.com", "claude-haiku", "PASSED", None),
+    ("analyst@example.com", None, "PASSED", None),
+    ("admin@example.com", "claude-opus", "PASSED", None),
+]
+
+MODEL_PROMPT = "How has attendance been this month?"
 
 
 def main() -> int:
@@ -183,6 +196,35 @@ def main() -> int:
         if written != len(CASES):
             failures.append(f"expected {len(CASES)} audit rows, got {written}")
 
+        # The model gate: a role can only run the models it holds, and a refusal
+        # never reaches a provider.
+        print("\nmodel gate:")
+        for email, requested, expected, fragment in MODEL_CASES:
+            user = db.scalar(select(User).where(User.email == email))
+            principal = load_principal(db, user)
+            outcome = executor.run_chat(db, principal, MODEL_PROMPT, requested)
+
+            refused = (outcome.required_permission or "").startswith("model:")
+            ok = refused == (expected == "DENIED")
+            if not ok:
+                failures.append(
+                    f"{principal.role} / model={requested}: expected {expected}, "
+                    f"got {'DENIED' if refused else 'PASSED'}"
+                )
+            if refused and outcome.tool is not None:
+                ok = False
+                failures.append(f"{principal.role} / model={requested}: refused but a tool still ran")
+            if fragment and fragment.lower() not in outcome.reply.lower():
+                ok = False
+                failures.append(f"{principal.role} / model={requested}: reply missing {fragment!r}")
+
+            print(
+                f"  [{'OK' if ok else 'XX'}] {principal.role:<12} asked for "
+                f"{str(requested):<14} -> {'DENIED at the gate' if refused else 'passed to the pipeline'}"
+            )
+            if refused:
+                print(f"       {outcome.reply}")
+
         # The grant/revoke pair must leave the analyst role exactly as seeded.
         analyst = db.scalar(select(User).where(User.email == "analyst@example.com"))
         live = set(load_principal(db, analyst).permissions)
@@ -195,7 +237,9 @@ def main() -> int:
         recent = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(len(CASES))).all()
         print("\nmost recent audit entries:")
         for entry in reversed(recent):
-            print(f"  {entry.decision:<8}{entry.role:<12}{entry.tool:<22}{entry.reason}")
+            # A model denial has no tool: it is refused before one is chosen.
+            target = entry.tool or entry.required_permission or "-"
+            print(f"  {entry.decision:<8}{entry.role:<12}{target:<22}{entry.reason}")
 
     if failures:
         print("\nFAILURES:")

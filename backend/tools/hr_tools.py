@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from models import Attendance, Employee, LeaveRecord, Performance
 from rbac.permissions import ATTENDANCE_READ, EMPLOYEE_READ, LEAVE_READ, PERFORMANCE_READ
-from tools.base import Tool, ToolContext, ToolResult, scope_note, visible_employee_ids
+from tools.base import Tool, ToolContext, ToolResult, scope_note, shows, visible_employee_ids
 
 
 def _clamp(value, low: int, high: int, default: int) -> int:
@@ -130,12 +130,14 @@ def get_attendance(ctx: ToolContext, args: dict) -> ToolResult:
     overall_total = sum(row["total_days"] for row in rows)
     overall_attended = sum(row["present"] + row["remote"] + row["late"] for row in rows)
     average_rate = round(100 * overall_attended / overall_total, 1) if overall_total else 0.0
+    rate_note = (
+        f" Average attendance rate {average_rate}%."
+        if shows(ctx, "attendance", "attendance_rate_pct")
+        else ""
+    )
 
     return ToolResult(
-        summary=(
-            f"Attendance for the last {days} days across {len(rows)} employee(s). "
-            f"Average attendance rate {average_rate}%."
-        ),
+        summary=(f"Attendance for the last {days} days across {len(rows)} employee(s).{rate_note}"),
         data={"window_days": days, "since": since.isoformat(), "average_rate_pct": average_rate, "employees": rows},
         row_count=len(rows),
         scope_note=scope_note(ctx, ids),
@@ -177,8 +179,9 @@ def get_performance(ctx: ToolContext, args: dict) -> ToolResult:
         )
 
     average = round(sum(row["rating"] for row in rows) / len(rows), 2) if rows else None
+    show_average = average and shows(ctx, "performance", "rating")
     return ToolResult(
-        summary=f"{len(rows)} performance review(s)." + (f" Average rating {average}/5." if average else ""),
+        summary=f"{len(rows)} performance review(s)." + (f" Average rating {average}/5." if show_average else ""),
         data={"average_rating": average, "reviews": rows},
         row_count=len(rows),
         scope_note=scope_note(ctx, ids),
@@ -250,6 +253,7 @@ EMPLOYEE_TOOL = Tool(
     ),
     required_permission=EMPLOYEE_READ,
     domain="employee directory",
+    dataset="employees",
     input_schema={
         "type": "object",
         "properties": {
@@ -274,6 +278,7 @@ ATTENDANCE_TOOL = Tool(
     ),
     required_permission=ATTENDANCE_READ,
     domain="attendance",
+    dataset="attendance",
     input_schema={
         "type": "object",
         "properties": {
@@ -296,6 +301,7 @@ PERFORMANCE_TOOL = Tool(
     ),
     required_permission=PERFORMANCE_READ,
     domain="performance",
+    dataset="performance",
     input_schema={
         "type": "object",
         "properties": {
@@ -316,6 +322,7 @@ LEAVE_TOOL = Tool(
     ),
     required_permission=LEAVE_READ,
     domain="leave",
+    dataset="leave",
     input_schema={
         "type": "object",
         "properties": {

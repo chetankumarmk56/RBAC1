@@ -16,7 +16,7 @@ import sys
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.orm import Session
 
 from auth.security import hash_password
@@ -34,8 +34,13 @@ from models import (
     Permission,
     Role,
     User,
+    role_data_scope,
+    role_field_access,
+    role_models,
     role_permissions,
 )
+from rbac.datasets import ROLE_SCOPES, SCOPE_ALL, seeded_fields_for
+from rbac.model_catalog import ROLE_MODELS
 from rbac.permissions import (
     ALL_PERMISSIONS,
     ROLE_ADMIN,
@@ -102,6 +107,9 @@ def reset(db: Session) -> None:
         db.execute(delete(model))
     db.execute(delete(User))
     db.execute(delete(Employee))
+    db.execute(delete(role_field_access))
+    db.execute(delete(role_data_scope))
+    db.execute(delete(role_models))
     db.execute(delete(role_permissions))
     db.execute(delete(Role))
     db.execute(delete(Permission))
@@ -109,6 +117,7 @@ def reset(db: Session) -> None:
 
 
 def seed_rbac(db: Session) -> dict[str, Role]:
+    """Roles with their permissions, models, field access and row scope."""
     permissions = {
         name: Permission(name=name, description=description)
         for name, description in ALL_PERMISSIONS.items()
@@ -121,6 +130,22 @@ def seed_rbac(db: Session) -> dict[str, Role]:
         role.permissions = [permissions[name] for name in permission_names]
         roles[role_name] = role
     db.add_all(roles.values())
+    db.flush()  # assign role ids before the association rows below
+
+    for role_name, role in roles.items():
+        for model_key in ROLE_MODELS.get(role_name, []):
+            db.execute(insert(role_models).values(role_id=role.id, model_key=model_key))
+        for dataset_key, field_key in seeded_fields_for(role_name):
+            db.execute(
+                insert(role_field_access).values(
+                    role_id=role.id, dataset_key=dataset_key, field_key=field_key
+                )
+            )
+        db.execute(
+            insert(role_data_scope).values(
+                role_id=role.id, scope=ROLE_SCOPES.get(role_name, SCOPE_ALL)
+            )
+        )
 
     db.commit()
     return roles
@@ -278,7 +303,7 @@ def main(only_if_empty: bool = False) -> None:
         print("Clearing existing demo data...")
         reset(db)
 
-        print("Seeding roles and permissions...")
+        print("Seeding roles, permissions, model access and data access...")
         roles = seed_rbac(db)
 
         print("Seeding employees...")
@@ -297,6 +322,11 @@ def main(only_if_empty: bool = False) -> None:
         for model in (Role, Permission, Employee, User, Payroll, Attendance, Performance, LeaveRecord):
             total = db.scalar(select(func.count()).select_from(model))
             print(f"  {model.__tablename__:<15} {total}")
+
+        print("\nModel access and row scope per role:")
+        for role_name in ROLE_PERMISSIONS:
+            models = ", ".join(ROLE_MODELS.get(role_name, [])) or "none"
+            print(f"  {role_name:<12} scope={ROLE_SCOPES.get(role_name, SCOPE_ALL):<11} {models}")
 
         print(f"\nDone. Test users (password: {settings.seed_password}):")
         for email, full_name, role_name, _employee in USERS:

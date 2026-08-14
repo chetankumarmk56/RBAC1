@@ -22,10 +22,10 @@ def _client() -> genai.Client:
     return genai.Client(api_key=settings.gemini_api_key)
 
 
-def _generate(*, system: str, user: str, config: types.GenerateContentConfig):
+def _generate(*, model: str, system: str, user: str, config: types.GenerateContentConfig):
     try:
         return _client().models.generate_content(
-            model=settings.gemini_model,
+            model=model,
             contents=user,
             config=config,
         )
@@ -39,9 +39,12 @@ class GeminiProvider:
     def configured(self) -> bool:
         return bool(settings.gemini_api_key)
 
-    def complete_json(self, *, system: str, user: str, schema: dict, effort: str) -> dict:
+    def complete_json(
+        self, *, model: str, system: str, user: str, schema: dict, effort: str
+    ) -> dict:
         del effort  # Gemini has no effort parameter
         response = _generate(
+            model=model,
             system=system,
             user=user,
             config=types.GenerateContentConfig(
@@ -60,9 +63,10 @@ class GeminiProvider:
         except json.JSONDecodeError as exc:
             raise LLMUnavailable("Gemini returned malformed JSON.") from exc
 
-    def complete_text(self, *, system: str, user: str, effort: str) -> str:
+    def complete_text(self, *, model: str, system: str, user: str, effort: str) -> str:
         del effort
         response = _generate(
+            model=model,
             system=system,
             user=user,
             config=types.GenerateContentConfig(
@@ -77,7 +81,7 @@ class GeminiProvider:
         return text
 
     def select_tool(
-        self, *, system: str, user: str, tools: list[dict], effort: str
+        self, *, model: str, system: str, user: str, tools: list[dict], effort: str
     ) -> tuple[str | None, dict, str]:
         del effort
         declarations = [
@@ -90,6 +94,7 @@ class GeminiProvider:
         ]
 
         response = _generate(
+            model=model,
             system=system,
             user=user,
             config=types.GenerateContentConfig(

@@ -18,7 +18,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://rbac:rbac@localhost:5432/rbac_poc"
 
     anthropic_api_key: str = ""
-    claude_model: str = "claude-opus-5"
+    # The three Claude tiers a role can be granted. Which of them a given role may
+    # actually use is stored in PostgreSQL — see rbac/model_catalog.py.
+    claude_opus_model: str = "claude-opus-5"
+    claude_sonnet_model: str = "claude-sonnet-5"
+    claude_haiku_model: str = "claude-haiku-4-5-20251001"
 
     # Fallback provider, used when a Claude call fails. Leave the key blank to disable.
     gemini_api_key: str = ""

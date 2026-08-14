@@ -1,11 +1,15 @@
-"""Verify the RBAC gate by calling every tool as every user, with no LLM involved.
+"""Verify the RBAC gates by calling every tool as every user, with no LLM involved.
 
-Three checks:
+Five checks:
   1. Enforcement — every tool's allow/deny outcome matches the caller's permissions
      as stored in PostgreSQL.
   2. No leakage — a denied call issues zero SQL statements, so the database is
      genuinely never reached.
-  3. Scope — a supervisor sees fewer employee rows than an admin.
+  3. Row scope — each role sees exactly the rows its scope allows, and a narrower
+     scope really is narrower.
+  4. Field policy — a field a role may not see appears nowhere in that role's tool
+     results, at any depth, including in derived totals.
+  5. Model access — `check_model_access` allows exactly the models the role holds.
 
 It also reports any drift between the live configuration and the seeded baseline in
 `rbac/permissions.py`. Drift is expected after a super admin grants or revokes access
@@ -21,10 +25,21 @@ from sqlalchemy import event, select
 
 from db.session import SessionLocal, engine
 from models import User
+from rbac.datasets import DATASET_CATALOGUE
+from rbac.model_catalog import ALL_MODEL_KEYS, model_label
 from rbac.permissions import ROLE_PERMISSIONS
-from rbac.service import PermissionDenied, load_principal
+from rbac.service import ModelAccessDenied, PermissionDenied, check_model_access, load_principal
 from tools.base import ToolContext, execute_tool
-from tools.registry import ALL_TOOLS
+from tools.registry import ALL_TOOLS, tool_for_dataset
+
+
+def _keys_in(value) -> set[str]:
+    """Every dict key appearing anywhere in a nested result payload."""
+    if isinstance(value, dict):
+        return set(value) | {key for item in value.values() for key in _keys_in(item)}
+    if isinstance(value, list):
+        return {key for item in value for key in _keys_in(item)}
+    return set()
 
 USER_EMAILS = [
     "supervisor@example.com",
@@ -98,9 +113,61 @@ def main() -> int:
 
         supervisor_rows = execute_tool(employee_tool, ToolContext(db=db, principal=supervisor), {}).row_count
         admin_rows = execute_tool(employee_tool, ToolContext(db=db, principal=admin), {}).row_count
-        print(f"scope     : supervisor sees {supervisor_rows} employees, admin sees {admin_rows}")
-        if supervisor_rows >= admin_rows:
+        print(
+            f"row scope : supervisor ({supervisor.row_scope}) sees {supervisor_rows} employees, "
+            f"admin ({admin.row_scope}) sees {admin_rows}"
+        )
+        if supervisor.row_scope != admin.row_scope and supervisor_rows >= admin_rows:
             failures.append("supervisor scope is not narrower than admin scope")
+
+        # Field policy: a withheld column must not appear anywhere in the payload.
+        print("\nfield policy (withheld columns, by role and dataset):")
+        for principal in principals.values():
+            notes = []
+            for dataset in DATASET_CATALOGUE:
+                tool = tool_for_dataset(dataset.key)
+                if tool is None or tool.required_permission not in principal.permissions:
+                    continue
+
+                result = execute_tool(tool, ToolContext(db=db, principal=principal), {})
+                withheld = principal.field_access.withheld_fields(dataset.key)
+                expected = [spec.key for spec in dataset.fields if spec.key in withheld and not spec.locked]
+                if sorted(result.withheld_fields) != sorted(expected):
+                    failures.append(
+                        f"{tool.name} as {principal.role}: reported withheld "
+                        f"{result.withheld_fields}, expected {expected}"
+                    )
+
+                present = _keys_in(result.data)
+                for spec in dataset.fields:
+                    if spec.key not in expected:
+                        continue
+                    leaked = ({spec.key} | set(spec.derived)) & present
+                    if leaked:
+                        failures.append(
+                            f"{tool.name} as {principal.role}: withheld field leaked as {sorted(leaked)}"
+                        )
+                if expected:
+                    notes.append(f"{dataset.key}: {', '.join(expected)}")
+            print(f"  {principal.role:<12} {'; '.join(notes) or 'nothing withheld'}")
+
+        # Model access: exactly the models the role holds, and no others.
+        print("\nmodel access:")
+        for principal in principals.values():
+            for key in ALL_MODEL_KEYS:
+                allowed = key in principal.models
+                try:
+                    check_model_access(principal, key)
+                    refused = False
+                except ModelAccessDenied:
+                    refused = True
+                if refused == allowed:
+                    failures.append(
+                        f"model {key} as {principal.role}: expected "
+                        f"{'ALLOWED' if allowed else 'DENIED'}, got the opposite"
+                    )
+            names = ", ".join(model_label(key) for key in principal.models) or "none"
+            print(f"  {principal.role:<12} {names}")
 
         # Drift from the seeded baseline — informational, not a failure.
         drift = []

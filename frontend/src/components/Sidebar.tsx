@@ -1,3 +1,4 @@
+import { roleLabel } from '../labels'
 import type { ConversationSummary, UserInfo } from '../types'
 
 export type Page = 'chat' | 'access'
@@ -150,7 +151,7 @@ export default function Sidebar({
           </span>
           <span className="account-text">
             <span className="account-name">{user.full_name}</span>
-            <span className={`role-badge role-${user.role}`}>{user.role.replace(/_/g, ' ')}</span>
+            <span className={`role-badge role-${user.role}`}>{roleLabel(user.role)}</span>
           </span>
         </div>
         <button type="button" className="ghost-button" onClick={onLogout}>

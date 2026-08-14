@@ -5,6 +5,7 @@ import type {
   ConversationDetail,
   ConversationSummary,
   LoginResponse,
+  ModelOptions,
   StreamEvent,
   UserInfo,
 } from '../types'
@@ -77,20 +78,27 @@ export function fetchMe(): Promise<UserInfo> {
   return request<UserInfo>('/api/auth/me')
 }
 
-export function sendChat(message: string): Promise<ChatResponse> {
+export function sendChat(message: string, model?: string | null): Promise<ChatResponse> {
   return request<ChatResponse>('/api/chat', {
     method: 'POST',
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, model: model ?? null }),
   })
+}
+
+/** The models this user may pick from. Locked ones are listed, not hidden. */
+export function fetchModelOptions(): Promise<ModelOptions> {
+  return request<ModelOptions>('/api/models')
 }
 
 /**
  * The same pipeline as `sendChat`, narrated over Server-Sent Events.
  * `onEvent` fires once per pipeline stage, then once with the finished answer.
+ * `model` is the model the user picked; null means "the best one my role holds".
  */
 export async function streamChat(
   message: string,
   conversationId: number | null,
+  model: string | null,
   onEvent: (event: StreamEvent) => void,
 ): Promise<void> {
   const token = getToken()
@@ -100,7 +108,7 @@ export async function streamChat(
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ message, conversation_id: conversationId }),
+    body: JSON.stringify({ message, conversation_id: conversationId, model }),
   })
 
   if (!response.ok || !response.body) {
@@ -174,5 +182,38 @@ export function setAccess(
   return request<AccessChangeResponse>('/api/admin/access', {
     method: 'POST',
     body: JSON.stringify({ role_name: roleName, tool_name: toolName, granted }),
+  })
+}
+
+/** Which LLM a role may run. */
+export function setModelAccess(
+  roleName: string,
+  modelKey: string,
+  granted: boolean,
+): Promise<AccessChangeResponse> {
+  return request<AccessChangeResponse>('/api/admin/model-access', {
+    method: 'POST',
+    body: JSON.stringify({ role_name: roleName, model_key: modelKey, granted }),
+  })
+}
+
+/** Which column of a dataset a role may see. */
+export function setFieldAccess(
+  roleName: string,
+  dataset: string,
+  field: string,
+  granted: boolean,
+): Promise<AccessChangeResponse> {
+  return request<AccessChangeResponse>('/api/admin/field-access', {
+    method: 'POST',
+    body: JSON.stringify({ role_name: roleName, dataset, field, granted }),
+  })
+}
+
+/** How far a role's rows reach: all | department | team | self. */
+export function setDataScope(roleName: string, scope: string): Promise<AccessChangeResponse> {
+  return request<AccessChangeResponse>('/api/admin/data-scope', {
+    method: 'POST',
+    body: JSON.stringify({ role_name: roleName, scope }),
   })
 }

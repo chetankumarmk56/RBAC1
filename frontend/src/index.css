@@ -12,6 +12,9 @@
   --surface: #fffefb;
   --sunk: #efece4;
   --ink: #23211d;
+  /* Between --ink and --ink-soft: still clearly grey, but dark enough to read
+     comfortably at small sizes and in form fields. */
+  --ink-mid: #4a443b;
   --ink-soft: #6c665a;
   --ink-faint: #9c9486;
   --line: #e3ded2;
@@ -44,6 +47,7 @@
     --surface: #232220;
     --sunk: #2b2926;
     --ink: #edeae3;
+    --ink-mid: #c9c3b6;
     --ink-soft: #a8a294;
     --ink-faint: #7d766a;
     --line: #35332e;
@@ -293,7 +297,7 @@ code {
   font-size: 0.78rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--ink-mid);
 }
 
 .auth-form input {
@@ -302,6 +306,10 @@ code {
   border-radius: var(--radius-sm);
   background: var(--surface);
   font-size: 0.94rem;
+  /* The input sits inside the label, so it inherits the caption's styling.
+     Reset all three — the colour especially: the faint caption grey is too light
+     to read a typed value in. Still grey, just a step darker. */
+  color: var(--ink-mid);
   letter-spacing: normal;
   text-transform: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -358,7 +366,7 @@ code {
   font-size: 0.72rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--ink-mid);
 }
 
 .test-user-list {
@@ -397,7 +405,7 @@ code {
 
 .test-user-blurb {
   font-size: 0.68rem;
-  color: var(--ink-faint);
+  color: var(--ink-mid);
 }
 
 /* ------------------------------------------------------------------ shell -- */
@@ -543,27 +551,35 @@ code {
   color: var(--deny);
 }
 
+/* Only a super admin ever sees this, and the console it opens is the point of
+   that role — so it reads as an entry point, not a quiet link at the bottom. */
 .nav-item {
   display: flex;
   align-items: center;
   gap: 9px;
   padding: 9px 11px;
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--clay) 38%, transparent);
   border-radius: var(--radius-sm);
-  background: none;
-  color: var(--ink-soft);
+  background: var(--clay-wash);
+  color: var(--clay-ink);
   font-size: 0.89rem;
+  font-weight: 600;
   text-align: left;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.nav-item svg {
+  color: var(--clay);
 }
 
 .nav-item:hover {
-  background: rgba(180, 85, 47, 0.08);
-  color: var(--ink);
+  background: color-mix(in srgb, var(--clay) 14%, var(--clay-wash));
+  border-color: var(--clay);
 }
 
 .nav-item-active {
   background: var(--surface);
+  border-color: var(--clay);
   color: var(--ink);
   font-weight: 600;
   box-shadow: var(--shadow-sm);
@@ -879,6 +895,19 @@ code {
   font-weight: 700;
 }
 
+.chip-scope,
+.chip-model {
+  background: var(--clay-wash);
+  border-color: color-mix(in srgb, var(--clay) 22%, transparent);
+  color: var(--clay-ink);
+}
+
+.chip-withheld {
+  background: var(--deny-wash);
+  border-color: color-mix(in srgb, var(--deny) 22%, transparent);
+  color: var(--deny);
+}
+
 .chip-fallback {
   background: var(--clay-wash);
   border-color: color-mix(in srgb, var(--clay) 30%, transparent);
@@ -1153,12 +1182,69 @@ details[open] > summary .caret {
   cursor: not-allowed;
 }
 
-.composer-hint {
+.composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   max-width: 720px;
   margin: 8px auto 0;
-  text-align: center;
+}
+
+.composer-hint {
+  flex: 1;
+  margin: 0;
+  text-align: right;
   font-size: 0.7rem;
   color: var(--ink-faint);
+}
+
+/* ---------------------------------------------------------- model picker -- */
+
+.model-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.model-picker:hover {
+  border-color: color-mix(in srgb, var(--clay) 45%, var(--line));
+}
+
+.model-picker-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.model-picker select {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+  max-width: 190px;
+}
+
+/* The model is locked for this role: the server will refuse it, and says so. */
+.model-picker-blocked {
+  border-color: color-mix(in srgb, var(--deny) 45%, var(--line));
+  color: var(--deny);
+}
+
+.model-picker-blocked + .composer-hint {
+  color: var(--deny);
 }
 
 /* -------------------------------------------------------- access control -- */
@@ -1203,6 +1289,140 @@ details[open] > summary .caret {
   color: var(--deny);
 }
 
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 14px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--sunk);
+  width: fit-content;
+}
+
+.tab {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tab:hover {
+  color: var(--ink);
+}
+
+.tab-active,
+.tab-active:hover {
+  background: var(--surface);
+  color: var(--clay-ink);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* -------------------------------------------------------- console panels -- */
+
+.panel {
+  margin: 0 auto 26px;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.panel h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 4px;
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.panel-perm {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.panel-perm code {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+}
+
+.panel-blurb {
+  margin: 0 0 14px;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.scope-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scope-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.scope-row > .role-badge {
+  min-width: 108px;
+}
+
+.scope-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.scope-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.scope-option:hover {
+  border-color: color-mix(in srgb, var(--clay) 45%, var(--line));
+}
+
+.scope-option input {
+  accent-color: var(--clay);
+  cursor: inherit;
+}
+
+.scope-on {
+  background: var(--clay-wash);
+  border-color: color-mix(in srgb, var(--clay) 40%, transparent);
+  color: var(--clay-ink);
+  font-weight: 600;
+}
+
+.scope-locked {
+  cursor: help;
+  opacity: 0.6;
+}
+
 .matrix {
   border-collapse: collapse;
   width: 100%;
@@ -1241,6 +1461,21 @@ details[open] > summary .caret {
 .matrix-perm {
   font-weight: 400;
   white-space: nowrap;
+}
+
+/* Row headers read as a name, with the identifier the audit log records beneath. */
+.named-label {
+  display: block;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.matrix .named-id {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--ink-faint);
 }
 
 .matrix code {
@@ -1287,6 +1522,38 @@ details[open] > summary .caret {
 .tag-write {
   background: var(--clay-wash);
   color: var(--clay-ink);
+}
+
+.tag-dataset {
+  background: var(--sunk);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.tag-locked {
+  background: var(--sunk);
+  color: var(--ink-faint);
+}
+
+.tag-missing {
+  background: var(--deny-wash);
+  color: var(--deny);
+}
+
+/* The dataset gate sits above its columns, so it reads as the parent switch. */
+.matrix-row-dataset th,
+.matrix-row-dataset td {
+  background: color-mix(in srgb, var(--sunk) 55%, transparent);
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+
+/* A column toggle for a role that cannot read the dataset at all: still editable,
+   but dimmed, because it only takes effect once the dataset is granted. */
+.matrix-cell-inactive {
+  opacity: 0.4;
 }
 
 .legend {
@@ -1388,5 +1655,19 @@ details[open] > summary .caret {
   }
   .user-bubble {
     max-width: 92%;
+  }
+  .composer-foot {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .composer-hint {
+    flex-basis: 100%;
+    text-align: center;
+  }
+  .tabs {
+    width: 100%;
+  }
+  .tab {
+    flex: 1;
   }
 }

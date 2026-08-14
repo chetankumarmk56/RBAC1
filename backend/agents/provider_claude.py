@@ -32,11 +32,13 @@ class ClaudeProvider:
     def configured(self) -> bool:
         return bool(settings.anthropic_api_key)
 
-    def complete_json(self, *, system: str, user: str, schema: dict, effort: str) -> dict:
+    def complete_json(
+        self, *, model: str, system: str, user: str, schema: dict, effort: str
+    ) -> dict:
         """Structured outputs, so the response always parses — no regex, no retry loop."""
         try:
             response = _client().messages.create(
-                model=settings.claude_model,
+                model=model,
                 max_tokens=MAX_TOKENS,
                 system=system,
                 messages=[{"role": "user", "content": user}],
@@ -53,10 +55,10 @@ class ClaudeProvider:
         except json.JSONDecodeError as exc:  # pragma: no cover — structured outputs prevent this
             raise LLMUnavailable("Claude returned malformed JSON.") from exc
 
-    def complete_text(self, *, system: str, user: str, effort: str) -> str:
+    def complete_text(self, *, model: str, system: str, user: str, effort: str) -> str:
         try:
             response = _client().messages.create(
-                model=settings.claude_model,
+                model=model,
                 max_tokens=MAX_TOKENS,
                 system=system,
                 messages=[{"role": "user", "content": user}],
@@ -68,11 +70,11 @@ class ClaudeProvider:
         return _text_of(_guard(response))
 
     def select_tool(
-        self, *, system: str, user: str, tools: list[dict], effort: str
+        self, *, model: str, system: str, user: str, tools: list[dict], effort: str
     ) -> tuple[str | None, dict, str]:
         try:
             response = _client().messages.create(
-                model=settings.claude_model,
+                model=model,
                 max_tokens=MAX_TOKENS,
                 system=system,
                 messages=[{"role": "user", "content": user}],

@@ -21,7 +21,11 @@ class LLMUnavailable(RuntimeError):
 
 
 class Provider(Protocol):
-    """Structural interface. Implementations live in `provider_claude` / `provider_gemini`."""
+    """Structural interface. Implementations live in `provider_claude` / `provider_gemini`.
+
+    `model` is the provider's own model id, chosen per request from the set the
+    caller's role holds — see `rbac/model_catalog.py`.
+    """
 
     name: str
 
@@ -29,16 +33,16 @@ class Provider(Protocol):
         """True when this provider has the credentials it needs."""
         ...
 
-    def complete_json(self, *, system: str, user: str, schema: dict, effort: str) -> dict:
+    def complete_json(self, *, model: str, system: str, user: str, schema: dict, effort: str) -> dict:
         """Return a dict matching `schema`."""
         ...
 
-    def complete_text(self, *, system: str, user: str, effort: str) -> str:
+    def complete_text(self, *, model: str, system: str, user: str, effort: str) -> str:
         """Return a plain-text answer."""
         ...
 
     def select_tool(
-        self, *, system: str, user: str, tools: list[dict], effort: str
+        self, *, model: str, system: str, user: str, tools: list[dict], effort: str
     ) -> tuple[str | None, dict, str]:
         """Pick at most one tool.
 

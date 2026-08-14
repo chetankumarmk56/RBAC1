@@ -20,6 +20,8 @@ def _user_info(principal: Principal) -> UserInfo:
         full_name=principal.full_name,
         role=principal.role,
         permissions=sorted(principal.permissions),
+        models=list(principal.models),
+        row_scope=principal.row_scope,
     )
 
 

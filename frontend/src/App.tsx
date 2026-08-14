@@ -18,7 +18,7 @@ const MANAGE_ACCESS = 'permissions:write'
 
 const PAGE_META: Record<Page, { title: string; sub: string }> = {
   chat: { title: 'Chat', sub: 'Planner · role agent · tool · RBAC · PostgreSQL' },
-  access: { title: 'Access control', sub: 'Which roles may use which tools' },
+  access: { title: 'Access control', sub: 'Tools · data · models, per role' },
 }
 
 export default function App() {

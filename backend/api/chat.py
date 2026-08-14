@@ -15,12 +15,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from agents.executor import ChatOutcome, Progress, run_chat, run_chat_events
+from agents.llm import model_is_available
 from api.conversations import NEW_CHAT_TITLE, owned_conversation, title_from
 from auth.dependencies import get_current_principal
 from db.session import SessionLocal, get_db
 from models import ChatMessage, Conversation
+from rbac.model_catalog import MODEL_CATALOGUE
 from rbac.service import Principal
-from schemas import ChatRequest, ChatResponse, ChatTrace
+from schemas import ChatRequest, ChatResponse, ChatTrace, ModelOption, ModelOptions
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -37,7 +39,32 @@ def _trace(outcome: ChatOutcome) -> ChatTrace:
         row_count=outcome.row_count,
         scope_note=outcome.scope_note,
         provider=outcome.provider,
+        model=outcome.model,
+        withheld_fields=outcome.withheld_fields,
         steps=outcome.steps,
+    )
+
+
+@router.get("/models", response_model=ModelOptions)
+def models(principal: Principal = Depends(get_current_principal)) -> ModelOptions:
+    """The model picker's options for this caller.
+
+    Models the role does not hold are listed as locked rather than hidden: picking
+    one produces a real refusal from the server, which is the point of the demo.
+    """
+    return ModelOptions(
+        models=[
+            ModelOption(
+                key=model.key,
+                label=model.label,
+                provider=model.provider,
+                blurb=model.blurb,
+                allowed=principal.may_use_model(model.key),
+                available=model_is_available(model),
+            )
+            for model in MODEL_CATALOGUE
+        ],
+        default_model=principal.models[0] if principal.models else None,
     )
 
 
@@ -47,10 +74,11 @@ def chat(
     principal: Principal = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ) -> ChatResponse:
-    # `principal` carries the role and permissions loaded from PostgreSQL for the
-    # bearer token. The request body contributes only the message text — a client
-    # cannot pass a role, a permission or a tool name.
-    outcome = run_chat(db, principal, payload.message)
+    # `principal` carries the role, permissions, models and data policy loaded from
+    # PostgreSQL for the bearer token. The request body contributes only the message
+    # text and a *requested* model — a client cannot pass a role, a permission or a
+    # tool name, and the requested model is checked against the role before use.
+    outcome = run_chat(db, principal, payload.message, payload.model)
     return ChatResponse(reply=outcome.reply, trace=_trace(outcome))
 
 
@@ -109,7 +137,7 @@ def chat_stream(
                 )
                 db.commit()
 
-                for item in run_chat_events(db, principal, payload.message):
+                for item in run_chat_events(db, principal, payload.message, payload.model):
                     if isinstance(item, Progress):
                         yield _frame(
                             {"type": "status", "stage": item.stage, "text": item.text, **item.detail}

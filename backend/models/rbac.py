@@ -14,6 +14,33 @@ role_permissions = Table(
     Column("permission_id", ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True),
 )
 
+# Which LLMs a role may run. A model the role does not hold is refused before any
+# provider is called — see rbac/service.check_model_access.
+role_models = Table(
+    "role_models",
+    Base.metadata,
+    Column("role_id", ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+    Column("model_key", String(40), primary_key=True),  # e.g. "claude-sonnet"
+)
+
+# Column-level data access: one row per field a role may see. A dataset field with
+# no row here is stripped from every tool result before the agent sees it.
+role_field_access = Table(
+    "role_field_access",
+    Base.metadata,
+    Column("role_id", ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+    Column("dataset_key", String(40), primary_key=True),  # e.g. "payroll"
+    Column("field_key", String(60), primary_key=True),  # e.g. "base_salary"
+)
+
+# Row-level data access: how far a role's rows reach — all | department | team | self.
+role_data_scope = Table(
+    "role_data_scope",
+    Base.metadata,
+    Column("role_id", ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+    Column("scope", String(20), nullable=False, default="all"),
+)
+
 
 class Role(Base):
     __tablename__ = "roles"

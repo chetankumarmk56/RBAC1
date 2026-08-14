@@ -3,7 +3,15 @@
 from models.audit import AuditLog
 from models.chat import ChatMessage, Conversation
 from models.hr import Attendance, Employee, LeaveRecord, Payroll, Performance
-from models.rbac import Permission, Role, User, role_permissions
+from models.rbac import (
+    Permission,
+    Role,
+    User,
+    role_data_scope,
+    role_field_access,
+    role_models,
+    role_permissions,
+)
 
 __all__ = [
     "Attendance",
@@ -17,5 +25,8 @@ __all__ = [
     "Permission",
     "Role",
     "User",
+    "role_data_scope",
+    "role_field_access",
+    "role_models",
     "role_permissions",
 ]
