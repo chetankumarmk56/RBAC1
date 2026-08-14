@@ -11,6 +11,15 @@ import type {
 
 const TOKEN_KEY = 'rbac_poc_token'
 
+/**
+ * Where the API lives. Empty in development, where Vite proxies /api to the
+ * backend. Set VITE_API_BASE_URL when the frontend is served from a different
+ * origin than the API — e.g. a static host in front of a separate backend.
+ */
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+
+const url = (path: string) => `${API_BASE}${path}`
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
 }
@@ -34,7 +43,7 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken()
-  const response = await fetch(path, {
+  const response = await fetch(url(path), {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -85,7 +94,7 @@ export async function streamChat(
   onEvent: (event: StreamEvent) => void,
 ): Promise<void> {
   const token = getToken()
-  const response = await fetch('/api/chat/stream', {
+  const response = await fetch(url('/api/chat/stream'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -143,7 +152,7 @@ export function fetchConversation(id: number): Promise<ConversationDetail> {
 
 export async function deleteConversation(id: number): Promise<void> {
   const token = getToken()
-  const response = await fetch(`/api/conversations/${id}`, {
+  const response = await fetch(url(`/api/conversations/${id}`), {
     method: 'DELETE',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })

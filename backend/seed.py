@@ -1,14 +1,18 @@
 """Seed the database with roles, permissions, test users and dummy HR data.
 
 Run from the backend directory, after `alembic upgrade head`:
-    python seed.py
+    python seed.py              # always reseed
+    python seed.py --if-empty   # seed only when there are no users yet
 
 Idempotent: it clears the demo data and re-inserts it, so it is safe to re-run.
+`--if-empty` exists for deploy hooks — it seeds a fresh database once and then
+does nothing, so redeploying never wipes saved conversations or runtime grants.
 Dates are generated relative to today, so "who is on leave right now" always has
 something to find.
 """
 
 import random
+import sys
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -265,8 +269,12 @@ def seed_leave(db: Session, employees: dict[str, Employee]) -> None:
     db.commit()
 
 
-def main() -> None:
+def main(only_if_empty: bool = False) -> None:
     with SessionLocal() as db:
+        if only_if_empty and (db.scalar(select(func.count()).select_from(User)) or 0) > 0:
+            print("Users already exist - skipping seed.")
+            return
+
         print("Clearing existing demo data...")
         reset(db)
 
@@ -296,4 +304,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(only_if_empty="--if-empty" in sys.argv)

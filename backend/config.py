@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -31,6 +32,24 @@ class Settings(BaseSettings):
     seed_password: str = "password123"
 
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_psycopg3_driver(cls, value: str) -> str:
+        """Accept a hosting provider's connection string unchanged.
+
+        Render, Heroku and friends hand out `postgres://…` or `postgresql://…`.
+        Either makes SQLAlchemy load psycopg2, which this project does not install
+        — only psycopg3. Rewriting the scheme here means the URL can be pasted
+        straight from the dashboard.
+        """
+        for prefix in ("postgresql+psycopg://", "postgresql+psycopg2://"):
+            if value.startswith(prefix):
+                return value
+        for prefix in ("postgresql://", "postgres://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix) :]
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:
