@@ -161,13 +161,30 @@ MODEL_CASES: list[tuple[str, str | None, str, str | None]] = [
 MODEL_PROMPT = "How has attendance been this month?"
 
 
+def _expected_decision(principal, prompt: str) -> str | None:
+    """What the *live* RBAC configuration implies for this prompt.
+
+    The decisions declared in CASES document the seeded baseline, but access is
+    editable at runtime — that is the whole point of the console. Resolving the
+    expectation from the current configuration keeps this script honest about what it
+    is checking: that the pipeline enforces whatever RBAC currently says, not that
+    nobody has touched it since the seed.
+    """
+    if stub_plan(None, "", prompt, {}).get("agent") == "none":
+        return None
+    tool = get_tool(stub_select_tool(None, "", prompt, [])[0])
+    if tool is None:
+        return None
+    return "ALLOWED" if tool.required_permission in principal.permissions else "DENIED"
+
+
 def main() -> int:
     failures: list[str] = []
 
     with SessionLocal() as db:
         audit_before = db.scalar(select(func.count()).select_from(AuditLog)) or 0
 
-        for email, prompt, expected, fragment in CASES:
+        for email, prompt, declared, fragment in CASES:
             user = db.scalar(select(User).where(User.email == email))
             if user is None:
                 print(f"FAIL  missing seeded user {email} — run seed.py first")
@@ -175,6 +192,9 @@ def main() -> int:
 
             # Reloaded per message, so a permission change lands on the next turn.
             principal = load_principal(db, user)
+            expected = _expected_decision(principal, prompt) or declared
+            drifted = expected != declared
+
             outcome = executor.run_chat(db, principal, prompt)
 
             ok = outcome.decision == expected
@@ -187,6 +207,9 @@ def main() -> int:
             print(f"[{'OK' if ok else 'XX'}] {principal.role:<12} {prompt}")
             print(f"      agent    : {outcome.agent}   tool: {outcome.tool}")
             print(f"      decision : {outcome.decision} ({outcome.required_permission})")
+            if drifted:
+                print(f"      note     : seeded baseline expects {declared}; live config "
+                      f"gives this role {expected}, and that is what was asserted")
             print(f"      reply    : {outcome.reply[:140]}")
             print()
 

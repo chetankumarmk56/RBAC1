@@ -7,7 +7,11 @@ Data access is decided at three levels, all enforced server-side:
      granting the tool in chat are the same write to `role_permissions`.
   2. **Field** — which columns of that dataset come back. Stored in
      `role_field_access`; enforced centrally in `tools.base.execute_tool`, after the
-     handler and before the agent ever sees the rows.
+     handler and before the agent ever sees the rows. Withholding a column also
+     withholds anything that reconstructs it — the aggregates computed from it
+     (`FieldSpec.derived`) and the sibling columns that together determine it
+     (`FieldSpec.reconstructed_by`) — so a redacted figure cannot be recovered by
+     arithmetic from what is left.
   3. **Row** — which employees' rows are in scope at all. Stored in
      `role_data_scope`; enforced by `tools.base.visible_employee_ids`.
 
@@ -42,6 +46,11 @@ class FieldSpec:
     # Aggregates computed from this field elsewhere in the payload. Withholding the
     # field withholds these too, so a redacted column cannot be read back off a total.
     derived: tuple[str, ...] = ()
+    # Sibling columns that *together* determine this one exactly. A role holding all
+    # of them can compute this field with arithmetic, so granting them is the same as
+    # granting this field — see `DatasetSpec.effective_withheld`. Listing a partial
+    # set would be wrong: the relationship is "all of these", not "any of these".
+    reconstructed_by: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -65,6 +74,39 @@ class DatasetSpec:
     def configurable_fields(self) -> list[FieldSpec]:
         return [spec for spec in self.fields if not spec.locked]
 
+    def effective_withheld(self, granted: set[str]) -> set[str]:
+        """Field keys a role holding `granted` does not get from this dataset.
+
+        Starts from the fields simply not granted, then closes over reconstruction:
+        when every column that determines a withheld field is visible, the withheld
+        figure is one subtraction away, so those columns are withheld too. Payroll is
+        the case that matters — `net_pay + deductions - bonus` is `base_salary`
+        exactly, so withholding base salary while leaving the other three in place
+        withholds nothing at all.
+
+        Locked columns are never withheld; they identify the row.
+        """
+        withheld = {spec.key for spec in self.fields if not spec.locked and spec.key not in granted}
+        by_key = {spec.key: spec for spec in self.fields}
+
+        changed = True
+        while changed:
+            changed = False
+            for key in list(withheld):
+                spec = by_key.get(key)
+                if spec is None or not spec.reconstructed_by:
+                    continue
+                siblings = [by_key[name] for name in spec.reconstructed_by if name in by_key]
+                # Only a *complete* set reconstructs the field. If one of them is
+                # already withheld the sum cannot be solved, and the rest stay visible.
+                if not siblings or any(sibling.key in withheld for sibling in siblings):
+                    continue
+                for sibling in siblings:
+                    if not sibling.locked:
+                        withheld.add(sibling.key)
+                        changed = True
+        return withheld
+
 
 PAYROLL_DATA = DatasetSpec(
     key="payroll",
@@ -77,10 +119,21 @@ PAYROLL_DATA = DatasetSpec(
         FieldSpec("department", "Department"),
         FieldSpec("title", "Job title"),
         FieldSpec("period", "Pay period"),
-        FieldSpec("base_salary", "Base salary"),
-        FieldSpec("bonus", "Bonus"),
-        FieldSpec("deductions", "Deductions"),
-        FieldSpec("net_pay", "Net pay", derived=("total_net_pay",)),
+        # The four money columns satisfy net_pay = base_salary + bonus - deductions,
+        # so any three of them give the fourth exactly. Each therefore names the other
+        # three: withholding one of the four withholds all four, and there is no
+        # arrangement that hands a role three of them and calls the fourth private.
+        # Withholding *two* is still allowed — that leaves only their difference
+        # derivable, which is how HR sees base pay without the bonus/deduction split.
+        FieldSpec("base_salary", "Base salary", reconstructed_by=("bonus", "deductions", "net_pay")),
+        FieldSpec("bonus", "Bonus", reconstructed_by=("base_salary", "deductions", "net_pay")),
+        FieldSpec("deductions", "Deductions", reconstructed_by=("base_salary", "bonus", "net_pay")),
+        FieldSpec(
+            "net_pay",
+            "Net pay",
+            derived=("total_net_pay",),
+            reconstructed_by=("base_salary", "bonus", "deductions"),
+        ),
         FieldSpec("currency", "Currency"),
     ],
 )
@@ -111,13 +164,21 @@ ATTENDANCE_DATA = DatasetSpec(
     fields=[
         FieldSpec("name", "Employee name", locked=True),
         FieldSpec("department", "Department"),
-        FieldSpec("present", "Days present"),
-        FieldSpec("remote", "Days remote"),
-        FieldSpec("late", "Days late"),
-        FieldSpec("absent", "Days absent"),
-        FieldSpec("total_days", "Total days"),
+        # The day counts sum: total_days = present + remote + late + absent, so any
+        # four of the five give the fifth (tools/hr_tools.py builds them that way).
+        FieldSpec("present", "Days present", reconstructed_by=("remote", "late", "absent", "total_days")),
+        FieldSpec("remote", "Days remote", reconstructed_by=("present", "late", "absent", "total_days")),
+        FieldSpec("late", "Days late", reconstructed_by=("present", "remote", "absent", "total_days")),
+        FieldSpec("absent", "Days absent", reconstructed_by=("present", "remote", "late", "total_days")),
+        FieldSpec("total_days", "Total days", reconstructed_by=("present", "remote", "late", "absent")),
         FieldSpec("hours_worked", "Hours worked"),
-        FieldSpec("attendance_rate_pct", "Attendance rate", derived=("average_rate_pct",)),
+        # rate = 100 * (present + remote + late) / total_days — the inputs give it exactly.
+        FieldSpec(
+            "attendance_rate_pct",
+            "Attendance rate",
+            derived=("average_rate_pct",),
+            reconstructed_by=("present", "remote", "late", "total_days"),
+        ),
     ],
 )
 
@@ -147,9 +208,25 @@ LEAVE_DATA = DatasetSpec(
         FieldSpec("name", "Employee name", locked=True),
         FieldSpec("department", "Department"),
         FieldSpec("leave_type", "Leave type"),
-        FieldSpec("start_date", "Start date"),
-        FieldSpec("end_date", "End date"),
-        FieldSpec("days", "Days"),
+        # start, end and duration are a triangle: any two give the third. `days` is
+        # end - start + 1 in tools/hr_tools.py.
+        # `currently_on_leave` is computed from the same two dates but is not a
+        # catalogue field of its own, so it is named here as derived — otherwise it
+        # would survive every redaction, and since the row keeps a locked name, a bare
+        # "on leave today" flag still identifies the person.
+        FieldSpec(
+            "start_date",
+            "Start date",
+            derived=("currently_on_leave",),
+            reconstructed_by=("end_date", "days"),
+        ),
+        FieldSpec(
+            "end_date",
+            "End date",
+            derived=("currently_on_leave",),
+            reconstructed_by=("start_date", "days"),
+        ),
+        FieldSpec("days", "Days", reconstructed_by=("start_date", "end_date")),
         FieldSpec("status", "Approval status"),
         FieldSpec("reason", "Stated reason"),
     ],
@@ -218,7 +295,12 @@ ROLE_FIELD_DENIALS: dict[str, dict[str, list[str]]] = {
         # Analysts work in aggregate: no direct contact details, no compensation
         # figures even if the payroll dataset is granted to them at runtime, and no
         # named feedback.
-        "employees": ["email"],
+        # `manager` goes with `reviewer`: seed.py sets a review's reviewer to the
+        # employee's manager, so leaving the directory's manager column visible would
+        # hand back the reviewer name this baseline just denied. The reconstruction
+        # closure in DatasetSpec.effective_withheld is per-dataset and cannot see a
+        # relationship that spans two, so this one is closed here in the baseline.
+        "employees": ["email", "manager"],
         "payroll": ["base_salary", "bonus", "deductions", "net_pay"],
         "performance": ["reviewer", "comments"],
         "leave": ["reason"],

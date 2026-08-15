@@ -210,13 +210,43 @@ def _change_access(ctx: ToolContext, args: dict, *, grant: bool) -> ToolResult:
     )
 
     if grant and already:
+        # Holding the dataset is not the same as seeing all of it. Reporting a bare
+        # "nothing changed" here sends the super admin away believing the role has
+        # everything, when the columns they actually asked about may be withheld — so
+        # name them and point at the tool that changes them.
+        withheld = _withheld_columns(ctx, role.id, tool)
+        note = (
+            f" It does not see {_join_labels(withheld)}, though — "
+            f"{'that column is' if len(withheld) == 1 else 'those columns are'} withheld from "
+            f"this role. Use set_field_access to change "
+            f"{'it' if len(withheld) == 1 else 'them'}."
+            if withheld
+            else ""
+        )
         return ToolResult(
             summary=(
                 f"The '{role.name}' role already has access to {tool.name} "
-                f"via '{permission.name}'. Nothing changed."
+                f"via '{permission.name}'. Nothing changed.{note}"
             ),
-            data={"role": role.name, "permissions": _permissions_of(ctx, role.id)},
-            audit_note=f"grant no-op: '{role.name}' already had '{permission.name}'",
+            caveat=(
+                f"Nothing was granted. The '{role.name}' role already held "
+                f"'{permission.name}', but it still does not see "
+                f"{_join_labels(withheld)} — {'that column is' if len(withheld) == 1 else 'those columns are'} "
+                f"withheld at the column level, which is a separate setting. To change that, ask "
+                f"again naming the column (for example \"let the {role.name} see "
+                f"{withheld[0].label.lower()}\"), or tick it on the Access control page."
+                if withheld
+                else None
+            ),
+            data={
+                "role": role.name,
+                "permissions": _permissions_of(ctx, role.id),
+                "fields_withheld": [spec.key for spec in withheld],
+            },
+            audit_note=(
+                f"grant no-op: '{role.name}' already had '{permission.name}'"
+                + (f"; still withheld: {', '.join(spec.key for spec in withheld)}" if withheld else "")
+            ),
         )
 
     if not grant and not already:
@@ -245,15 +275,55 @@ def _change_access(ctx: ToolContext, args: dict, *, grant: bool) -> ToolResult:
 
     updated = _permissions_of(ctx, role.id)
     verb = "now has" if grant else "no longer has"
+
+    # One permission can gate several tools — `permissions:manage` gates four. The
+    # write above moved all of them, so naming only the tool the caller happened to
+    # mention would under-report what just changed.
+    gated = _tools_gated_by(permission.name)
+    others = [name for name in gated if name != tool.name]
+    also = (
+        f" That permission also gates {_join(others)}, so "
+        f"{'it is' if len(others) == 1 else 'they are'} "
+        f"{'now available to this role too' if grant else 'no longer available to it either'}."
+        if others
+        else ""
+    )
+
+    # Granting the dataset says nothing about its columns; flag any the role still
+    # will not see, so this does not read as "the role now sees everything".
+    withheld = _withheld_columns(ctx, role.id, tool) if grant else []
+    column_note = (
+        f" It still does not see {_join_labels(withheld)} — use set_field_access to "
+        f"change {'that' if len(withheld) == 1 else 'those'}."
+        if withheld
+        else ""
+    )
+
     return ToolResult(
         summary=(
             f"The '{role.name}' role {verb} access to {tool.name} "
-            f"('{permission.name}'). It takes effect on that role's next message."
+            f"('{permission.name}').{also}{column_note} It takes effect on that role's next message."
         ),
-        data={"role": role.name, "tool": tool.name, "permission": permission.name, "permissions": updated},
+        caveat=(
+            f"The dataset is granted, but the '{role.name}' role still does not see "
+            f"{_join_labels(withheld)} — {'that column is' if len(withheld) == 1 else 'those columns are'} "
+            f"withheld at the column level, which is a separate setting. To change that, ask again "
+            f"naming the column (for example \"let the {role.name} see {withheld[0].label.lower()}\"), "
+            f"or tick it on the Access control page."
+            if withheld
+            else None
+        ),
+        data={
+            "role": role.name,
+            "tool": tool.name,
+            "tools_affected": gated,
+            "permission": permission.name,
+            "permissions": updated,
+            "fields_withheld": [spec.key for spec in withheld],
+        },
         row_count=1,
         audit_note=(
-            f"{'granted' if grant else 'revoked'} '{permission.name}' ({tool.name}) "
+            f"{'granted' if grant else 'revoked'} '{permission.name}' ({', '.join(gated)}) "
             f"{'to' if grant else 'from'} '{role.name}'"
         ),
     )
@@ -416,19 +486,26 @@ def get_data_access(ctx: ToolContext, args: dict) -> ToolResult:
             if dataset_filter and dataset.key != dataset_filter:
                 continue
             granted = _fields_of(ctx, role.id, dataset.key)
+            has_dataset = dataset.permission in permissions
+            # What the role actually gets, not just what is ticked: a column that
+            # reconstructs a withheld one is withheld with it, and no column at all
+            # comes back when the dataset permission is missing. Reporting per-column
+            # visibility for a dataset the role cannot open would read as access it
+            # does not have — this is the tool the admin agent answers "what can this
+            # role see" from.
+            withheld = dataset.effective_withheld(granted) if has_dataset else dataset.field_keys
             datasets.append(
                 {
                     "dataset": dataset.key,
-                    "has_dataset_access": dataset.permission in permissions,
+                    "has_dataset_access": has_dataset,
                     "required_permission": dataset.permission,
                     "fields_visible": [
-                        spec.key for spec in dataset.fields if spec.locked or spec.key in granted
+                        spec.key for spec in dataset.fields if spec.key not in withheld
                     ],
                     "fields_withheld": [
-                        spec.key
-                        for spec in dataset.fields
-                        if not spec.locked and spec.key not in granted
+                        spec.key for spec in dataset.fields if spec.key in withheld
                     ],
+                    "fields_granted": sorted(granted),
                 }
             )
         rows.append({"role": role.name, "row_scope": _scope_of(ctx, role.id), "datasets": datasets})
@@ -441,6 +518,62 @@ def get_data_access(ctx: ToolContext, args: dict) -> ToolResult:
         data={"scopes": DATA_SCOPES, "roles": rows},
         row_count=len(rows),
     )
+
+
+def _join_labels(specs: list) -> str:
+    return _join([item.label for item in specs])
+
+
+def _column_vocabulary() -> str:
+    """Every configurable column, grouped by dataset, for the tool descriptions.
+
+    Generated rather than hand-listed: a written-out sample only steers the phrasings
+    someone thought of, and any column left off the list falls through to the
+    dataset-level tools, which revoke far more than the request asked for.
+    """
+    return "; ".join(
+        f"{dataset.label} — " + ", ".join(f"{spec.label} ({spec.key})" for spec in dataset.configurable_fields)
+        for dataset in DATASET_CATALOGUE
+    )
+
+
+def _join(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _tools_gated_by(permission_name: str) -> list[str]:
+    """Every configurable tool this one permission controls, in catalogue order."""
+    return [tool.name for tool in _catalogue() if tool.required_permission == permission_name]
+
+
+def _withheld_columns(ctx: ToolContext, role_id: int, tool) -> list:
+    """Columns of `tool`'s dataset the role does not actually see, in catalogue order.
+
+    Used by the dataset-level grant/revoke tools: holding the dataset permission says
+    nothing about the columns, and a super admin reading only "already has access"
+    would never learn the difference.
+    """
+    dataset = get_dataset(tool.dataset) if tool.dataset else None
+    if dataset is None:
+        return []
+    withheld = dataset.effective_withheld(_fields_of(ctx, role_id, dataset.key))
+    return [spec for spec in dataset.fields if spec.key in withheld]
+
+
+def _blocking_fields(dataset, granted: set[str], spec) -> list:
+    """The withheld columns that `spec` helps reconstruct, and so is withheld with.
+
+    Empty when `spec` comes back normally — either it is not part of any
+    reconstruction, or the column it would rebuild is visible anyway.
+    """
+    withheld = dataset.effective_withheld(granted)
+    if spec.key not in withheld:
+        return []
+    return [
+        item
+        for item in dataset.fields
+        if item.key in withheld and item.key not in granted and spec.key in item.reconstructed_by
+    ]
 
 
 def set_field_access(ctx: ToolContext, args: dict) -> ToolResult:
@@ -480,8 +613,36 @@ def set_field_access(ctx: ToolContext, args: dict) -> ToolResult:
             audit_note=f"{action} rejected: '{dataset_key}.{field_key}' is locked",
         )
 
-    already = spec.key in _fields_of(ctx, role.id, dataset.key)
+    current = _fields_of(ctx, role.id, dataset.key)
+    was_withheld = dataset.effective_withheld(current)
+    already = spec.key in current
     if grant == already:
+        # "Already sees it" has to mean the role actually gets the column. A field that
+        # is ticked but withheld by the reconstruction closure is not seen, and saying
+        # otherwise here would send the super admin away believing a grant took effect.
+        blocked_by = _blocking_fields(dataset, current, spec)
+        if grant and blocked_by:
+            return ToolResult(
+                summary=(
+                    f"The '{role.name}' role already holds {dataset.label} · {spec.label}, but "
+                    f"still does not see it: with the other columns it reconstructs "
+                    f"{_join_labels(blocked_by)}, which this role may not see. Grant "
+                    f"{'that' if len(blocked_by) == 1 else 'those'} back for this one to count."
+                ),
+                data={"role": role.name, "dataset": dataset.key, "field": spec.key},
+                caveat=(
+                    f"Nothing changed, and the '{role.name}' role still does not see "
+                    f"{dataset.label} · {spec.label}. It was already granted, but it is withheld "
+                    f"because together with the other columns it reconstructs "
+                    f"{_join_labels(blocked_by)}. Grant "
+                    f"{_join_labels(blocked_by)} as well for this one to take effect."
+                ),
+                audit_note=(
+                    f"{action} no-op: '{role.name}' / '{dataset_key}.{field_key}' is granted but "
+                    f"withheld by {', '.join(item.key for item in blocked_by)}"
+                ),
+            )
+
         verb = "already sees" if already else "already does not see"
         return ToolResult(
             summary=f"The '{role.name}' role {verb} {dataset.label} · {spec.label}. Nothing changed.",
@@ -504,22 +665,100 @@ def set_field_access(ctx: ToolContext, args: dict) -> ToolResult:
         )
     ctx.db.commit()
 
-    verb = "now sees" if grant else "no longer sees"
+    remaining = _fields_of(ctx, role.id, dataset.key)
+    withheld = dataset.effective_withheld(remaining)
+
+    # Columns this change pulled down with it. Diffed against the withheld set from
+    # *before* the write: a sibling that was already withheld is not collateral of this
+    # revoke, and reporting it as such would credit the change with something it did
+    # not do. Saying only what actually moved is the difference between a super admin
+    # believing the change took and knowing what it did.
+    labels = {item.key: item.label for item in dataset.fields}
+    order = [item.key for item in dataset.fields]
+
+    # Describe what the write actually moved, not what the verb implies. The closure
+    # runs in both directions: a GRANT can narrow access, because completing a
+    # reconstruction set makes a still-ungranted column recoverable and withholds the
+    # whole set with it. Granting Bonus to a role holding Base salary and Net pay
+    # takes both of those away. Reporting that as "now sees Bonus" would be exactly
+    # the kind of confident, wrong confirmation this tool exists to avoid.
+    newly_withheld = [key for key in order if key in withheld and key not in was_withheld]
+    newly_visible = [key for key in order if key not in withheld and key in was_withheld]
+
+    # The ungranted columns driving the closure — the reason the others went with them.
+    drivers = [key for key in order if key in withheld and key not in remaining]
+
+    parts: list[str] = []
+    if spec.key in withheld and grant:
+        parts.append(
+            f"The '{role.name}' role now holds {dataset.label} · {spec.label}, but still does "
+            f"not see it."
+        )
+    else:
+        verb = "now sees" if grant else "no longer sees"
+        parts.append(f"The '{role.name}' role {verb} {dataset.label} · {spec.label}.")
+
+    collateral = [key for key in newly_withheld if key != spec.key]
+    if collateral:
+        parts.append(
+            f"{_join([labels[key] for key in collateral])} "
+            f"{'is' if len(collateral) == 1 else 'are'} withheld too, because together these "
+            f"columns reconstruct {_join([labels[key] for key in drivers])} exactly."
+        )
+    restored = [key for key in newly_visible if key != spec.key]
+    if restored:
+        parts.append(
+            f"{_join([labels[key] for key in restored])} "
+            f"{'comes' if len(restored) == 1 else 'come'} back with it."
+        )
+    if spec.key in withheld and grant and drivers:
+        parts.append(
+            f"Grant {_join([labels[key] for key in drivers])} as well for this one to count."
+        )
+    parts.append("It applies from that role's next message.")
+
+    delta = ""
+    if newly_withheld:
+        delta += f"; now withheld: {', '.join(newly_withheld)}"
+    if newly_visible:
+        delta += f"; now visible: {', '.join(newly_visible)}"
+
     return ToolResult(
-        summary=(
-            f"The '{role.name}' role {verb} {dataset.label} · {spec.label}. "
-            "It applies from that role's next message."
+        summary=" ".join(parts),
+        # A grant that narrows access, or one the closure still withholds, must not be
+        # summarised as a plain widening.
+        caveat=(
+            (
+                f"This did not widen access as asked: the '{role.name}' role now holds "
+                f"{dataset.label} · {spec.label} but still does not see it"
+                + (
+                    f", and {_join([labels[key] for key in collateral])} "
+                    f"{'is' if len(collateral) == 1 else 'are'} now withheld as well"
+                    if collateral
+                    else ""
+                )
+                + f". Grant {_join([labels[key] for key in drivers])} too."
+            )
+            if grant and spec.key in withheld
+            else (
+                f"This narrowed access as well as widening it: {_join([labels[key] for key in collateral])} "
+                f"{'is' if len(collateral) == 1 else 'are'} now withheld from the '{role.name}' role, "
+                f"because together these columns reconstruct {_join([labels[key] for key in drivers])}."
+            )
+            if collateral
+            else None
         ),
         data={
             "role": role.name,
             "dataset": dataset.key,
             "field": spec.key,
-            "fields": sorted(_fields_of(ctx, role.id, dataset.key)),
+            "fields": sorted(remaining),
+            "fields_withheld": [key for key in order if key in withheld],
         },
         row_count=1,
         audit_note=(
             f"{'granted' if grant else 'revoked'} field '{dataset.key}.{spec.key}' "
-            f"{'to' if grant else 'from'} '{role.name}'"
+            f"{'to' if grant else 'from'} '{role.name}'{delta}"
         ),
     )
 
@@ -646,9 +885,13 @@ TOOL_PERMISSIONS_TOOL = Tool(
 GRANT_TOOL_ACCESS_TOOL = Tool(
     name="grant_tool_access",
     description=(
-        "Give a role access to a tool, by granting that tool's required permission to the role. "
-        "Use when asked to give, grant, allow or enable a role's access to some data or tool — "
-        "for example 'let HR see payroll' or 'give the analyst role access to leave records'. "
+        "Give a role access to a WHOLE dataset or tool, by granting that tool's required "
+        "permission. Use when the request names a dataset — 'let HR see payroll', 'give the "
+        "analyst role access to leave records'.\n"
+        "Do NOT use this when the request names one column or figure; use set_field_access "
+        "instead. These are the columns, by dataset: " + _column_vocabulary() + ".\n"
+        "A role can hold a dataset and still be denied individual columns of it, so granting "
+        "the dataset here does nothing for a column request.\n"
         "The change is written to the database and applies from that role's next message."
     ),
     required_permission=PERMISSIONS_WRITE,
@@ -755,10 +998,18 @@ DATA_ACCESS_TOOL = Tool(
 SET_FIELD_ACCESS_TOOL = Tool(
     name="set_field_access",
     description=(
-        "Show or hide one field of one dataset for a role. Use when asked to let a role see, or "
-        "stop it seeing, a particular column — for example 'hide bonus from HR' or 'let the "
-        "analyst see email addresses'. A hidden field is stripped from every result before the "
-        "agent sees it. To remove a whole dataset use revoke_tool_access instead."
+        "Show or hide ONE column of one dataset for a role. This is the tool for any request "
+        "that names a specific figure rather than a dataset — 'give the supervisor access to "
+        "salary', 'hide bonus from HR', 'let the analyst see email addresses', 'stop managers "
+        "seeing why someone took leave'.\n"
+        "Map the words to a field key: salary / pay / compensation / base pay -> base_salary; "
+        "bonus -> bonus; deductions -> deductions; take-home or net pay -> net_pay; email or "
+        "contact details -> email; leave reason -> reason; review comments or feedback -> "
+        "comments; reviewer -> reviewer.\n"
+        "A hidden field is stripped from every result before the agent sees it, along with any "
+        "column that would reconstruct it. Granting a dataset with grant_tool_access does NOT "
+        "grant its columns, so use this even when the role already has the dataset. To remove a "
+        "whole dataset instead, use revoke_tool_access."
     ),
     required_permission=PERMISSIONS_WRITE,
     domain="data access",
@@ -774,7 +1025,12 @@ SET_FIELD_ACCESS_TOOL = Tool(
             },
             "field": {
                 "type": "string",
-                "description": "The field key, e.g. base_salary, bonus, email or reason.",
+                "enum": sorted(
+                    {spec.key for dataset in DATASET_CATALOGUE for spec in dataset.configurable_fields}
+                ),
+                "description": (
+                    "The column key. 'Salary', 'pay' and 'compensation' all mean base_salary."
+                ),
             },
             "granted": {
                 "type": "boolean",
@@ -815,10 +1071,13 @@ SET_DATA_SCOPE_TOOL = Tool(
 REVOKE_TOOL_ACCESS_TOOL = Tool(
     name="revoke_tool_access",
     description=(
-        "Remove a role's access to a tool, by revoking that tool's required permission from the "
-        "role. Use when asked to remove, revoke, block or disable a role's access — for example "
-        "'stop the supervisor role seeing payroll'. The change is written to the database and "
-        "applies from that role's next message."
+        "Remove a role's access to a WHOLE dataset or tool, by revoking that tool's required "
+        "permission. Use when the request names a dataset — 'stop the supervisor role seeing "
+        "payroll', 'take leave records away from the analyst'.\n"
+        "Do NOT use this when the request names one column or figure; use set_field_access with "
+        "granted=false instead, which leaves the rest of the dataset readable. These are the "
+        "columns, by dataset: " + _column_vocabulary() + ".\n"
+        "The change is written to the database and applies from that role's next message."
     ),
     required_permission=PERMISSIONS_WRITE,
     domain="rbac configuration",

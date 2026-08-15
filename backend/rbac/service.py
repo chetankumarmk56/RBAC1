@@ -45,22 +45,34 @@ class ModelAccessDenied(Exception):
 
 @dataclass(frozen=True)
 class FieldPolicy:
-    """Column-level data access: the (dataset, field) pairs a role may see."""
+    """Column-level data access: the (dataset, field) pairs a role may see.
+
+    `granted` is what the console ticked. What a caller actually gets is narrower: a
+    column the role holds is withheld anyway when it is part of a set that
+    reconstructs a column the role does *not* hold. Every read goes through
+    `allows`, so that closure applies to redacted payloads and to the figures
+    handlers write into their prose summaries alike.
+    """
 
     granted: frozenset[tuple[str, str]]
 
     def allows(self, dataset_key: str, field_key: str) -> bool:
-        return (dataset_key, field_key) in self.granted
+        dataset = DATASETS_BY_KEY.get(dataset_key)
+        if dataset is None:  # not a catalogued dataset — nothing to redact against
+            return (dataset_key, field_key) in self.granted
+        return field_key not in dataset.effective_withheld(self.allowed_fields(dataset_key))
 
     def allowed_fields(self, dataset_key: str) -> set[str]:
+        """The raw grants for this dataset, before the reconstruction closure."""
         return {field for dataset, field in self.granted if dataset == dataset_key}
 
     def withheld_fields(self, dataset_key: str) -> list[str]:
-        """Catalogue fields of this dataset the role does not hold, in catalogue order."""
+        """Catalogue fields of this dataset the role does not get, in catalogue order."""
         dataset = DATASETS_BY_KEY.get(dataset_key)
         if dataset is None:
             return []
-        return [spec.key for spec in dataset.fields if not self.allows(dataset_key, spec.key)]
+        withheld = dataset.effective_withheld(self.allowed_fields(dataset_key))
+        return [spec.key for spec in dataset.fields if spec.key in withheld]
 
 
 @dataclass(frozen=True)

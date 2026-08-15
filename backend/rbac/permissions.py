@@ -38,7 +38,12 @@ ROLE_SUPER_ADMIN = "super_admin"
 ROLE_DESCRIPTIONS: dict[str, str] = {
     ROLE_SUPERVISOR: "Team lead. Sees payroll, attendance and performance for their own reports.",
     ROLE_ANALYST: "Analytics. Sees aggregate statistics and the employee directory, never compensation.",
-    ROLE_HR: "HR operations. Sees employee records, attendance and leave, never compensation.",
+    # Not "never compensation": HR holds no payroll permission by default, but its
+    # column baseline grants base pay, so a super admin who grants payroll at runtime
+    # gets base pay without the bonus and deduction breakdown. This string is what
+    # get_role_permissions reports, so it has to describe the real configuration.
+    ROLE_HR: "HR operations. Sees employee records, attendance and leave. Holds no payroll "
+    "access by default; if granted it, sees base pay but not the bonus and deduction breakdown.",
     ROLE_ADMIN: "System administrator. Full access to data and audit logs; can read the RBAC "
     "configuration but not change it.",
     ROLE_SUPER_ADMIN: "Super administrator. Everything an admin can do, plus granting and revoking "

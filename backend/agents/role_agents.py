@@ -92,9 +92,11 @@ ADMIN_AGENT = RoleAgent(
     title="Administrator agent",
     routes_for=(
         "Administrative and security questions: audit logs and access history, roles and "
-        "permissions, the RBAC configuration, which language models or which data fields a role "
-        "may use, requests to grant or revoke any of that, and any request that spans several "
-        "domains at once including payroll."
+        "permissions, the RBAC configuration, which language models a role may run, which data "
+        "columns a role may see, how many employees' rows a role may reach, and any request to "
+        "change any of that — grant, give, allow, enable, revoke, remove, block, limit, "
+        "restrict, narrow or widen. Also any request that spans several domains at once, "
+        "including payroll."
     ),
     specialisation=(
         "You serve system administrators. You handle the audit trail, roles and permissions, and "

@@ -148,8 +148,14 @@ export interface RoleSummary {
   models: string[]
   /** Row reach: all | department | team | self. */
   row_scope: string
-  /** dataset key -> the fields of that dataset this role may see. */
+  /** dataset key -> the fields of that dataset granted to this role. */
   fields: Record<string, string[]>
+  /**
+   * dataset key -> the fields the role does not actually get. Wider than the
+   * ungranted ones: a granted column lands here too when it reconstructs an
+   * ungranted one, so a tick is not on its own proof the column comes back.
+   */
+  fields_withheld: Record<string, string[]>
 }
 
 export interface ToolSummary {

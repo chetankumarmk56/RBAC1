@@ -47,6 +47,11 @@ class ToolResult:
     # What to write to the audit log instead of a row count. Write tools set this so
     # the trail records what changed, not how many rows came back.
     audit_note: str | None = None
+    # A material limitation on what just happened — "the permission was already held,
+    # but these columns are still withheld". Kept out of `summary` because the
+    # responder rewrites prose and will drop a clause it reads as an aside; this is
+    # handed over as its own field with an instruction never to omit it.
+    caveat: str | None = None
     # Fields removed by the field-level policy. Filled in by `execute_tool`, not by
     # handlers, and surfaced in the reply and the trace.
     withheld_fields: list[str] = field(default_factory=list)

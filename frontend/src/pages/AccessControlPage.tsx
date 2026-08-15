@@ -115,6 +115,15 @@ export default function AccessControlPage({ onUnauthorized }: Props) {
     </th>
   ))
 
+  // Columns a role does not receive, per dataset it can actually open. Datasets the
+  // role has no permission for are skipped — everything there is withheld already,
+  // and the permission chips above say so.
+  const withheldSummary = (role: RoleSummary) =>
+    matrix.datasets
+      .filter((dataset) => dataset.roles_with_access.includes(role.name))
+      .map((dataset) => ({ dataset, fields: role.fields_withheld[dataset.key] ?? [] }))
+      .filter(({ fields }) => fields.length > 0)
+
   const protectedNote = (role: RoleSummary) =>
     `The ${roleLabel(role.name)} role is protected and cannot be changed.`
 
@@ -324,6 +333,11 @@ export default function AccessControlPage({ onUnauthorized }: Props) {
                         {roles.map((role) => {
                           const has = (role.fields[dataset.key] ?? []).includes(field.key)
                           const hasDataset = dataset.roles_with_access.includes(role.name)
+                          // Ticked, but withheld anyway because it reconstructs a column
+                          // this role may not see. The box stays checked — it is what is
+                          // stored — but the cell reads as inactive, like an ungranted dataset.
+                          const rebuilt =
+                            has && (role.fields_withheld[dataset.key] ?? []).includes(field.key)
                           const key = `field:${role.name}:${dataset.key}:${field.key}`
                           if (field.locked || role.protected) {
                             return (
@@ -342,11 +356,13 @@ export default function AccessControlPage({ onUnauthorized }: Props) {
                           return (
                             <td
                               key={key}
-                              className={`matrix-cell${hasDataset ? '' : ' matrix-cell-inactive'}`}
+                              className={`matrix-cell${hasDataset && !rebuilt ? '' : ' matrix-cell-inactive'}`}
                               title={
-                                hasDataset
-                                  ? undefined
-                                  : `The ${roleLabel(role.name)} role cannot read ${dataset.label} at all, so this has no effect until the dataset is granted.`
+                                !hasDataset
+                                  ? `The ${roleLabel(role.name)} role cannot read ${dataset.label} at all, so this has no effect until the dataset is granted.`
+                                  : rebuilt
+                                    ? `${field.label} is withheld from the ${roleLabel(role.name)} role even though it is ticked: together with the other ${dataset.label.toLowerCase()} figures it reconstructs a column this role may not see. Grant that column back to make this one count.`
+                                    : undefined
                               }
                             >
                               <input
@@ -386,6 +402,13 @@ export default function AccessControlPage({ onUnauthorized }: Props) {
               <strong>Columns</strong> narrow what comes back once the dataset is granted. A
               withheld column is stripped from the tool result before the agent sees it, along with
               any total computed from it, so the model cannot quote or estimate it.
+            </p>
+            <p>
+              A <strong>greyed-out tick</strong> is a column that is granted but withheld anyway,
+              because the columns around it reconstruct one this role may not see — payroll's four
+              money figures satisfy net pay = base salary + bonus − deductions, so any three give
+              the fourth. Withholding one of them withholds all four. Hover the cell for the
+              specific reason.
             </p>
           </div>
         </>
@@ -483,6 +506,17 @@ export default function AccessControlPage({ onUnauthorized }: Props) {
               {role.permissions.map((permission) => (
                 <span key={permission} className="chip chip-perm" title={permission}>
                   {permissionLabel(permission)}
+                </span>
+              ))}
+              {/* Permission chips are dataset-level. Without this, a role reading as
+                  "payroll" here could in fact receive no payroll figure at all. */}
+              {withheldSummary(role).map(({ dataset, fields }) => (
+                <span
+                  key={`withheld:${dataset.key}`}
+                  className="chip chip-denied"
+                  title={`Withheld from ${dataset.label}: ${fields.join(', ')}`}
+                >
+                  −{dataset.label.toLowerCase()}: {fields.length} withheld
                 </span>
               ))}
             </div>

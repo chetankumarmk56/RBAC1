@@ -101,8 +101,13 @@ class RoleSummary(BaseModel):
     models: list[str] = []
     # Row reach: all | department | team | self.
     row_scope: str = "all"
-    # dataset key -> the fields of that dataset this role may see.
+    # dataset key -> the fields of that dataset granted to this role. This is what the
+    # console's checkboxes show, so it stays the raw grant.
     fields: dict[str, list[str]] = {}
+    # dataset key -> the fields the role does not actually get. A superset of the
+    # ungranted ones: a granted column is in here too when it reconstructs an
+    # ungranted one, which is why the console needs it as well as `fields`.
+    fields_withheld: dict[str, list[str]] = {}
 
 
 class ToolSummary(BaseModel):

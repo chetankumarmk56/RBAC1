@@ -3,10 +3,16 @@
 Neither tool returns compensation figures — analytics is deliberately a
 non-payroll view, so `analytics:read` can never be used as a back door to salary.
 
-Each block of statistics is also tied to the column it aggregates, so a role that may
-not see a column does not get its average either: withholding
-`performance.rating` withholds the rating statistics too. Without that, an aggregate
-would be a back door around the field policy.
+Every block of statistics is gated twice, because an aggregate is still the
+underlying dataset's data:
+
+  * on the dataset's own permission, so `analytics:read` / `reports:read` cannot
+    return leave or performance figures to a role denied those datasets outright;
+  * on the column it aggregates, so a role that may not see `performance.rating`
+    does not get its average either.
+
+Without the first gate these two tools would be a back door around dataset
+permissions; without the second, around the field policy.
 """
 
 from datetime import date, timedelta
@@ -14,6 +20,7 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 
 from models import Attendance, Employee, LeaveRecord, Performance
+from rbac.datasets import DATASETS_BY_KEY
 from rbac.permissions import ANALYTICS_READ, REPORTS_READ
 from tools.base import Tool, ToolContext, ToolResult, scope_note, shows, visible_employee_ids
 
@@ -24,6 +31,53 @@ BLOCKS: list[tuple[str, str, str, str]] = [
     ("performance", "performance", "performance", "rating"),
     ("leave", "leave", "leave", "status"),
 ]
+
+
+def _permits(ctx: ToolContext, dataset_key: str) -> bool:
+    """Whether the caller holds the dataset's own read permission.
+
+    The field check below decides *which column* is aggregated; this decides whether
+    the dataset may be read at all. Both are needed — holding `reports:read` is not
+    holding `leave:read`.
+    """
+    dataset = DATASETS_BY_KEY.get(dataset_key)
+    return dataset is None or ctx.principal.has(dataset.permission)
+
+
+def _collect(ctx: ToolContext, builders: dict, wanted: str = "all") -> tuple[dict, list[str]]:
+    """Build every statistics block the caller is entitled to.
+
+    Returns the payload and the keys that were left out, each tagged so the caller
+    can tell a denied dataset (`leave.*`) from a withheld column (`leave.status`).
+    """
+    payload: dict = {}
+    omitted: list[str] = []
+    for name, key, dataset, column in BLOCKS:
+        if wanted not in ("all", name):
+            continue
+        if not _permits(ctx, dataset):
+            omitted.append(f"{dataset}.*")
+        elif not shows(ctx, dataset, column):
+            omitted.append(f"{dataset}.{column}")
+        else:
+            payload[key] = builders[key]()
+    return payload, omitted
+
+
+def _omission_note(omitted: list[str]) -> str:
+    """One clause naming what was left out and why."""
+    denied = [item[:-2] for item in omitted if item.endswith(".*")]
+    withheld = [item for item in omitted if not item.endswith(".*")]
+
+    note = ""
+    if denied:
+        note += (
+            f" No {', '.join(denied)} statistics are included: this role does not have "
+            f"permission to read {'that dataset' if len(denied) == 1 else 'those datasets'}."
+        )
+    if withheld:
+        note += f" Statistics for {', '.join(withheld)} are not available to this role."
+    return note
 
 
 def _headcount_by_department(ctx: ToolContext, ids: list[int] | None) -> list[dict]:
@@ -116,30 +170,17 @@ def get_analytics(ctx: ToolContext, args: dict) -> ToolResult:
         "leave": lambda: _leave_stats(ctx, ids),
     }
 
-    payload: dict = {}
-    withheld: list[str] = []
-    for name, key, dataset, column in BLOCKS:
-        if metric not in ("all", name):
-            continue
-        if not shows(ctx, dataset, column):
-            withheld.append(f"{dataset}.{column}")
-            continue
-        payload[key] = builders[key]()
+    payload, omitted = _collect(ctx, builders, metric)
 
-    note = (
-        f" Statistics for {', '.join(withheld)} are not available to this role."
-        if withheld
-        else ""
-    )
     return ToolResult(
         summary=(
             f"Aggregate analytics ({metric}). Compensation data is not included in "
-            f"analytics.{note}"
+            f"analytics.{_omission_note(omitted)}"
         ),
         data=payload,
         row_count=len(payload),
         scope_note=scope_note(ctx, ids),
-        withheld_fields=withheld,
+        withheld_fields=omitted,
     )
 
 
@@ -166,23 +207,18 @@ def get_reports(ctx: ToolContext, args: dict) -> ToolResult:
         "leave": lambda: _leave_stats(ctx, ids),
     }
 
-    withheld: list[str] = []
-    for _name, key, dataset, column in BLOCKS:
-        if shows(ctx, dataset, column):
-            payload[key] = builders[key]()
-        else:
-            withheld.append(f"{dataset}.{column}")
+    blocks, omitted = _collect(ctx, builders)
+    payload.update(blocks)
 
-    note = f" {', '.join(withheld)} are withheld from this role." if withheld else ""
     return ToolResult(
         summary=(
             f"Summary report for {payload['total_employees']} employee(s) over the last "
-            f"{days} days.{note}"
+            f"{days} days.{_omission_note(omitted)}"
         ),
         data=payload,
         row_count=payload["total_employees"],
         scope_note=scope_note(ctx, ids),
-        withheld_fields=withheld,
+        withheld_fields=omitted,
     )
 
 

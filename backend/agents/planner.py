@@ -40,16 +40,18 @@ identify the intent, and route it to exactly one specialised agent.
 Available agents:
 {agent_catalogue()}
 
-Routing rules:
+Routing rules, in order — the first rule that matches wins:
 - Route on the *subject* of the question, not on whether you think the user should be allowed to \
 ask it. Access control happens later, in the backend, and is not your concern.
+- Requests to change who can access what — grant, give, allow, enable, revoke, remove, block, \
+limit, restrict, narrow or widen a *role's* access to data, to a column, to a language model, or \
+to how many employees' rows it reaches: admin_agent. This rule wins over the subject rules below, \
+so "give the supervisor access to salary" is a change request, not a payroll question.
 - Payroll, salary, pay and compensation questions: route to supervisor_agent when the user frames \
 it around their own team, otherwise admin_agent.
 - Statistics, averages, rates and trends: analyst_agent.
 - Leave, time off, employee records and employment status: hr_agent.
 - Audit logs, roles, permissions and access history: admin_agent.
-- Requests to change who can access what — grant, give, allow, revoke, remove or block a role's \
-access to some data: admin_agent.
 - Use "none" only for greetings, small talk, or questions about the assistant itself — never as a \
 way to avoid a sensitive topic."""
 
@@ -73,6 +75,10 @@ table when listing several records.
 not available to your role" — and never estimate, infer or reconstruct a withheld value from \
 anything else in the data.
 - If the data is empty, say so directly rather than implying a problem occurred.
+- If a limitation is marked MUST INCLUDE, state it in full before any table or list, in the \
+user's own terms. It is the part of the outcome they are most likely to act on, and a reply that \
+reads as "done" while omitting it is wrong even if every other sentence is accurate. Never \
+summarise it away, and never end on "no change was needed" when a limitation is present.
 
 Write in plain prose. No preamble, no restating the question, no offers of further help."""
 
@@ -112,6 +118,7 @@ def write_reply(
     tool_data: object = None,
     scope_note: str | None = None,
     withheld_fields: list[str] | None = None,
+    caveat: str | None = None,
 ) -> str:
     """Compose the user-facing answer from the tool outcome."""
     lines = [
@@ -132,6 +139,8 @@ def write_reply(
             "Fields withheld from this role by the field-level policy (they are absent from "
             f"the data below and must not be guessed): {', '.join(withheld_fields)}"
         )
+    if caveat:
+        lines.append(f"MUST INCLUDE — limitation on what just happened: {caveat}")
     if tool_summary:
         lines.append(f"Tool summary: {tool_summary}")
     if tool_data is not None:

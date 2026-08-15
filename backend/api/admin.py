@@ -52,6 +52,12 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 CONSOLE_AGENT = "admin_console"
 
 
+def _granted_fields(
+    matrix: dict[str, set[tuple[str, str]]], role_name: str, dataset_key: str
+) -> set[str]:
+    return {field for dataset, field in matrix.get(role_name, set()) if dataset == dataset_key}
+
+
 def _build_matrix(db: Session) -> AccessMatrix:
     roles = list(db.scalars(select(Role).order_by(Role.name)))
     granted = {role.name: {permission.name for permission in role.permissions} for role in roles}
@@ -69,11 +75,18 @@ def _build_matrix(db: Session) -> AccessMatrix:
                 models=models.get(role.name, []),
                 row_scope=scopes.get(role.name, "all"),
                 fields={
-                    dataset.key: sorted(
-                        field_key
-                        for dataset_key, field_key in fields.get(role.name, set())
-                        if dataset_key == dataset.key
-                    )
+                    dataset.key: sorted(_granted_fields(fields, role.name, dataset.key))
+                    for dataset in DATASET_CATALOGUE
+                },
+                fields_withheld={
+                    dataset.key: [
+                        spec.key
+                        for spec in dataset.fields
+                        if spec.key
+                        in dataset.effective_withheld(
+                            _granted_fields(fields, role.name, dataset.key)
+                        )
+                    ]
                     for dataset in DATASET_CATALOGUE
                 },
             )

@@ -25,12 +25,17 @@ from sqlalchemy import event, select
 
 from db.session import SessionLocal, engine
 from models import User
-from rbac.datasets import DATASET_CATALOGUE
+from rbac.datasets import DATASET_CATALOGUE, DATASETS_BY_KEY
 from rbac.model_catalog import ALL_MODEL_KEYS, model_label
 from rbac.permissions import ROLE_PERMISSIONS
 from rbac.service import ModelAccessDenied, PermissionDenied, check_model_access, load_principal
+from tools.analytics_tools import BLOCKS as _ANALYTICS_BLOCKS
 from tools.base import ToolContext, execute_tool
 from tools.registry import ALL_TOOLS, tool_for_dataset
+
+# payload key -> the dataset it aggregates. Read from the tools themselves so a new
+# statistics block cannot be added without this check covering it.
+_AGGREGATE_BLOCKS = {key: dataset for _name, key, dataset, _column in _ANALYTICS_BLOCKS}
 
 
 def _keys_in(value) -> set[str]:
@@ -147,9 +152,55 @@ def main() -> int:
                         failures.append(
                             f"{tool.name} as {principal.role}: withheld field leaked as {sorted(leaked)}"
                         )
+                    # A column stripped from the payload is still leaked if everything
+                    # that reconstructs it came back: base_salary is exactly
+                    # net_pay + deductions - bonus, so handing over those three hands
+                    # over the salary. Redaction has to survive arithmetic, not just grep.
+                    if spec.reconstructed_by and not set(spec.reconstructed_by) & set(expected):
+                        failures.append(
+                            f"{tool.name} as {principal.role}: withheld '{spec.key}' is "
+                            f"reconstructible from {', '.join(spec.reconstructed_by)}"
+                        )
+                # A row key that is neither a catalogue field nor tied to one through
+                # `derived` cannot be reached by any policy, so it ships to every role
+                # no matter what the console says. Rows keep a locked name, so even a
+                # bare boolean is attached to a named person.
+                tied = dataset.field_keys | {key for spec in dataset.fields for key in spec.derived}
+                rows = result.data.get("records") if isinstance(result.data, dict) else None
+                if isinstance(rows, list) and rows:
+                    untethered = sorted(set(rows[0]) - tied)
+                    if untethered:
+                        failures.append(
+                            f"{tool.name} as {principal.role}: row keys reachable by no "
+                            f"policy: {untethered}"
+                        )
+
                 if expected:
                     notes.append(f"{dataset.key}: {', '.join(expected)}")
             print(f"  {principal.role:<12} {'; '.join(notes) or 'nothing withheld'}")
+
+        # Aggregates are still the underlying dataset's data: reports:read and
+        # analytics:read must not return a block from a dataset the role cannot read.
+        print("\naggregate boundaries (blocks omitted for want of the dataset permission):")
+        for principal in principals.values():
+            notes = []
+            for tool in ALL_TOOLS:
+                if tool.name not in ("get_reports", "get_analytics"):
+                    continue
+                if tool.required_permission not in principal.permissions:
+                    continue
+                result = execute_tool(tool, ToolContext(db=db, principal=principal), {})
+                for block, dataset_key in _AGGREGATE_BLOCKS.items():
+                    dataset = DATASETS_BY_KEY[dataset_key]
+                    if block in (result.data or {}) and not principal.has(dataset.permission):
+                        failures.append(
+                            f"{tool.name} as {principal.role}: returned '{block}' without "
+                            f"'{dataset.permission}'"
+                        )
+                omitted = [item for item in result.withheld_fields if item.endswith(".*")]
+                if omitted:
+                    notes.append(f"{tool.name}: {', '.join(omitted)}")
+            print(f"  {principal.role:<12} {'; '.join(notes) or 'nothing omitted'}")
 
         # Model access: exactly the models the role holds, and no others.
         print("\nmodel access:")

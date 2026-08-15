@@ -384,6 +384,7 @@ def run_chat_events(
             tool_data=result.data,
             scope_note=result.scope_note,
             withheld_fields=result.withheld_fields,
+            caveat=result.caveat,
         )
     except LLMUnavailable as exc:
         logger.warning("responder unavailable: %s", exc)
