@@ -88,7 +88,8 @@ The API is on `http://localhost:8010`, with interactive docs at
 `http://localhost:8010/docs`.
 
 > Port 8010 rather than the usual 8000, which is often already in use. If you
-> change it, set `VITE_API_TARGET` for the frontend (see `frontend/.env.example`).
+> change it, create `frontend/.env` with `VITE_API_TARGET=http://localhost:<port>`
+> — Vite proxies `/api` to that target in development.
 
 ### 3. Frontend
 
@@ -98,13 +99,17 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+Open `http://localhost:5173`. A standalone reviewer's guide to the demo — the roles,
+the four gates and a worked scenario — is served alongside the app at
+[`/walkthrough.html`](frontend/public/walkthrough.html).
 
 ---
 
 ## Test users
 
-All five share the password `password123` (configurable via `SEED_PASSWORD`).
+All five share the password `password123`. `SEED_PASSWORD` in `backend/.env` changes
+what `seed.py` hashes — but the login page's demo buttons prefill `password123`
+literally, so change both if you set it.
 
 | Email                      | Role        | Permissions                                                              |
 | -------------------------- | ----------- | ------------------------------------------------------------------------ |
@@ -120,7 +125,7 @@ columns** — all editable from the Access control page, all enforced server-sid
 | Role        | Models (best first)                   | Rows | Columns withheld                                                       |
 | ----------- | ------------------------------------- | ---- | ---------------------------------------------------------------------- |
 | supervisor  | Sonnet · Haiku · Gemini               | team | `leave.reason`                                                          |
-| analyst     | Haiku · Gemini                        | all  | `employees.email`, all four payroll figures, `performance.reviewer/comments`, `leave.reason` |
+| analyst     | Haiku · Gemini                        | all  | `employees.email`, `employees.manager`, all four payroll figures, `performance.reviewer/comments`, `leave.reason` |
 | hr          | Sonnet · Haiku · Gemini               | all  | `payroll.bonus`, `payroll.deductions`                                   |
 | admin       | Opus · Sonnet · Haiku · Gemini        | all  | none                                                                    |
 | super_admin | Opus · Sonnet · Haiku · Gemini        | all  | none                                                                    |
@@ -131,6 +136,13 @@ data is themselves plus their four direct reports — 5 of the 12 employees.
 Column rules apply even to data the role cannot currently reach, so they are already
 in force the moment a dataset is granted: give the analyst payroll and they get the
 table with the salary columns missing.
+
+`employees.manager` is withheld from the analyst for a reason that spans two datasets:
+`seed.py` sets each review's reviewer to the employee's manager, so leaving the
+directory's manager column visible would hand back the `performance.reviewer` name the
+same baseline denies. The reconstruction closure in
+[datasets.py](backend/rbac/datasets.py) works within one dataset, so this cross-dataset
+case is closed in the seeded baseline instead.
 
 **admin vs super_admin.** An admin can *read* everything, including the RBAC
 configuration. Only a super admin can *change* it. That split is the whole difference
@@ -196,7 +208,9 @@ trace chips take its place.
 The narration comes from the pipeline itself, not a timer: `run_chat_events()` in
 [executor.py](backend/agents/executor.py) yields a `Progress` at each stage and a
 final `ChatOutcome`. `run_chat()` drains the same generator, so the non-streaming
-endpoint and both verify scripts share one code path with the streaming one.
+endpoint and `verify_pipeline.py` share one code path with the streaming one.
+(`verify_rbac.py` sits below the orchestrator entirely — it calls `execute_tool`
+directly, with no planner, agent or LLM in the picture.)
 
 ### Chat history
 
@@ -457,10 +471,59 @@ Both exit non-zero on any mismatch.
 
 ---
 
+## Deploying
+
+The app runs on a managed host without code changes, but a few settings stop being
+optional once it leaves localhost.
+
+**Database.** `DATABASE_URL` takes a hosting provider's connection string as-is —
+`postgres://…` and `postgresql://…` are both rewritten to `postgresql+psycopg://` in
+[config.py](backend/config.py), since the project installs psycopg3 only. Paste it
+straight from the dashboard.
+
+**Secrets.** Set `JWT_SECRET` to a long random string. It has a working default, so
+the app boots happily without one and signs tokens with a value published in this
+repo — set it. Set `SEED_PASSWORD` too if anyone else can reach the deployment.
+
+**CORS.** `CORS_ORIGINS` is a comma-separated list defaulting to localhost only, so a
+frontend served from another origin needs its URL added. Don't reach for `*`; the API
+sends `Access-Control-Allow-Credentials`.
+
+**Seeding.** Use the `--if-empty` flag in a deploy hook:
+
+```bash
+alembic upgrade head
+python seed.py --if-empty
+```
+
+`--if-empty` seeds a fresh database once and then does nothing, so redeploying never
+wipes saved conversations or runtime access grants. Plain `python seed.py` always
+resets the demo data.
+
+**Split origins.** When the frontend is served from a different origin than the API,
+build it with `VITE_API_BASE_URL=https://your-api-host`. Vite inlines it at build
+time, so it must be set *before* `npm run build`, not at runtime. Leave it unset in
+development, where the proxy handles `/api`.
+
+**Port.** `backend/main.py` has no `PORT` handling and the repo carries no Procfile or
+Dockerfile, so a platform that injects `$PORT` needs the start command to pass it:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+---
+
 ## Project layout
 
 ```
 backend/
+  main.py             FastAPI app, CORS, router registration, GET /api/health
+  config.py           Settings from backend/.env — DB, API keys, JWT, CORS
+  schemas.py          Pydantic request/response models
+  seed.py             Roles, permissions, model + data access, users, dummy HR data
+  requirements.txt
+  .env.example        Copy to .env and set ANTHROPIC_API_KEY
   agents/
     llm.py            LLMRun: the models a message may use, tried in order
     provider_base.py  LLMUnavailable and the Provider protocol
@@ -483,26 +546,36 @@ backend/
     audit.py          Audit-log writes
   auth/
     security.py       bcrypt hashing, JWT encode/decode
-    dependencies.py   Bearer token → database-resolved Principal
+    dependencies.py   Bearer token → DB-resolved Principal, require_permission
     router.py         POST /api/auth/login, GET /api/auth/me
-  models/             SQLAlchemy models (rbac.py, hr.py, audit.py)
-  db/                 Declarative base, engine, session
-  api/chat.py         POST /api/chat
-  api/admin.py        Access-control console API — super admin only
-  api/conversations.py Chat history, scoped to the caller
-  alembic/            Migrations
-  seed.py             Roles, permissions, users, dummy HR data
-  schemas.py          Pydantic request/response models
-  main.py             FastAPI app
+  api/
+    chat.py           GET /api/models, POST /api/chat, POST /api/chat/stream
+    admin.py          Access-control console API — super admin only
+    conversations.py  Chat history, scoped to the caller
+  models/             SQLAlchemy models: rbac.py, hr.py, chat.py, audit.py
+  db/                 base.py (declarative base), session.py (engine, get_db)
+  alembic/            0001 schema · 0002 chat history · 0003 model + data access
+  alembic.ini
+  verify_rbac.py      Every tool × every role, no LLM — enforcement, leakage, scope, fields
+  verify_pipeline.py  The documented prompts through the real orchestrator, stubbed LLM
 
 frontend/
+  index.html
+  vite.config.ts      Dev server on 5173, proxies /api to VITE_API_TARGET
+  tsconfig.json · package.json
+  public/
+    walkthrough.html  Standalone reviewer's guide, served at /walkthrough.html
   src/
+    main.tsx          React entry point
+    App.tsx           Session restore, sidebar shell, page switching
+    index.css         Design tokens and every style in the app
     components/       Sidebar, ChatMessage, ChatInput, LiveStatus, Markdown
     pages/            LoginPage, ChatPage, AccessControlPage
-    services/api.ts   fetch wrapper, token storage
+    services/api.ts   fetch wrapper, token storage, SSE reader
     labels.ts         Display names for tools, permissions, roles and models
     types/index.ts    Shared types
-    App.tsx           Session restore, sidebar shell, page switching
+
+docker-compose.yml    PostgreSQL 16 for local development
 ```
 
 ---
