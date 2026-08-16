@@ -3,12 +3,13 @@ import { useState } from 'react'
 import { ApiError, login, setToken } from '../services/api'
 import type { UserInfo } from '../types'
 
+// Ordered most privileged first, so the list reads down the access ladder.
 const TEST_USERS = [
-  { email: 'supervisor@example.com', role: 'supervisor', blurb: 'Own team only' },
-  { email: 'analyst@example.com', role: 'analyst', blurb: 'Stats, no pay' },
-  { email: 'hr@example.com', role: 'hr', blurb: 'People & leave' },
-  { email: 'admin@example.com', role: 'admin', blurb: 'Reads everything' },
   { email: 'superadmin@example.com', role: 'super admin', blurb: 'Edits access' },
+  { email: 'admin@example.com', role: 'admin', blurb: 'Reads everything' },
+  { email: 'supervisor@example.com', role: 'supervisor', blurb: 'Own team only' },
+  { email: 'hr@example.com', role: 'hr', blurb: 'People & leave' },
+  { email: 'analyst@example.com', role: 'analyst', blurb: 'Stats, no pay' },
 ]
 
 export default function LoginPage({ onSignedIn }: { onSignedIn: (user: UserInfo) => void }) {
