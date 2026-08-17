@@ -13,7 +13,12 @@ venv
 # Rebuilt inside the image
 **/node_modules
 frontend/dist
-backend/static
+
+# backend/static is deliberately absent from this list. The Dockerfile overwrites it
+# from the Vite stage, so excluding it would cost nothing here — but App Runner's
+# revised build is also a Docker build over this same context, and there the committed
+# bundle is the only frontend there is. Ignoring it strips the site out of the image
+# and leaves FastAPI answering / with a 404.
 
 **/__pycache__
 **/*.py[cod]

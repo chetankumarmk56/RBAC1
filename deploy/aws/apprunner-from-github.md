@@ -98,6 +98,12 @@ reason there is still no CORS configuration to keep in sync.
 Re-run those three lines whenever anything under `frontend/` changes. Forgetting to is the
 failure mode of this path: the deploy succeeds, and the site serves the previous frontend.
 
+**`backend/static` must stay out of [.dockerignore](../../.dockerignore).** App Runner's
+revised build is a Docker build over the cloned repository, so that file applies here too,
+and it was written for the image — where excluding the bundle is free because the Vite stage
+rebuilds it. Exclude it here and the deployment succeeds, the health check passes, and `/`
+answers `{"detail":"Not Found"}` because `main.py` found no `static/` to mount.
+
 ## 4. Connect App Runner to GitHub
 
 In the [App Runner console](https://console.aws.amazon.com/apprunner/home), **Create service**
