@@ -408,6 +408,25 @@ code {
   color: var(--ink-mid);
 }
 
+.auth-foot {
+  margin: 2px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.auth-foot a {
+  color: var(--clay-ink);
+  text-decoration-color: color-mix(in srgb, var(--clay) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.auth-foot a:hover {
+  text-decoration-color: var(--clay);
+}
+
 /* ------------------------------------------------------------------ shell -- */
 
 .app {
@@ -596,6 +615,34 @@ code {
   margin-top: 4px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+/* Quieter than .nav-item: this leaves the app rather than switching pages. */
+.demo-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.demo-link:hover {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.demo-link svg {
+  color: var(--ink-faint);
+}
+
+.demo-link:hover svg {
+  color: var(--clay);
 }
 
 .account {

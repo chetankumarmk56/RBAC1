@@ -46,6 +46,20 @@ function ShieldIcon() {
   )
 }
 
+function BookIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true">
+      <path
+        d="M3.5 4.5h4.2c1.3 0 2.3.8 2.3 1.8v9c0-.8-.9-1.5-2-1.5H3.5v-9Zm13 0h-4.2c-1.3 0-2.3.8-2.3 1.8v9c0-.8.9-1.5 2-1.5h4.5v-9Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function TrashIcon() {
   return (
     <svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
@@ -145,6 +159,12 @@ export default function Sidebar({
       )}
 
       <div className="sidebar-foot">
+        {/* Static page under public/demo, so a full navigation rather than a route. */}
+        <a className="demo-link" href="/demo">
+          <BookIcon />
+          How this works
+        </a>
+
         <div className="account">
           <span className="avatar" aria-hidden="true">
             {initials}

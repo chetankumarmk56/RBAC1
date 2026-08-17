@@ -99,9 +99,13 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. A standalone reviewer's guide to the demo — the roles,
-the four gates and a worked scenario — is served alongside the app at
-[`/walkthrough.html`](frontend/public/walkthrough.html).
+Open `http://localhost:5173`. Two standalone pages are served alongside the app, both
+without signing in:
+
+- [`/demo`](frontend/public/demo/index.html) — five worked scenarios, each with the
+  code that decides it, and a diagram of the request pipeline behind a toggle.
+- [`/walkthrough.html`](frontend/public/walkthrough.html) — the reviewer's guide: the
+  roles, the four gates and a worked scenario.
 
 ---
 
@@ -561,9 +565,10 @@ backend/
 
 frontend/
   index.html
-  vite.config.ts      Dev server on 5173, proxies /api to VITE_API_TARGET
+  vite.config.ts      Dev server on 5173, proxies /api, serves the static pages below
   tsconfig.json · package.json
   public/
+    demo/index.html   Scenarios and pipeline diagram, served at /demo
     walkthrough.html  Standalone reviewer's guide, served at /walkthrough.html
   src/
     main.tsx          React entry point

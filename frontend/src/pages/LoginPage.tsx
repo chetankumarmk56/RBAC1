@@ -109,6 +109,12 @@ export default function LoginPage({ onSignedIn }: { onSignedIn: (user: UserInfo)
               ))}
             </div>
           </div>
+
+          {/* Static page under public/demo — a plain link, not a route. */}
+          <p className="auth-foot">
+            First time here? <a href="/demo">Read the walkthrough</a> — five scenarios and the
+            request pipeline, no sign-in needed.
+          </p>
         </form>
       </div>
     </div>
