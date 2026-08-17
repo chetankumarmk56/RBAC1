@@ -5,9 +5,11 @@ Run from the backend directory:
 """
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from agents.llm import configured_providers, model_is_available
 from api.admin import router as admin_router
@@ -56,3 +58,15 @@ def health() -> dict:
         "providers": providers,
         "llm_configured": bool(providers),
     }
+
+
+# The built frontend, when this deployment carries one. The Docker build drops
+# frontend/dist here so a single service answers for both the app and the API on
+# one origin — which is also why CORS stops mattering there. In development the
+# directory is absent and Vite serves the frontend instead.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+if STATIC_DIR.is_dir():
+    # Mounted last, so /api/*, /docs and /openapi.json still match first.
+    # html=True resolves directory indexes, which is what /demo/ needs.
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="frontend")

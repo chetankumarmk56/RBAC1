@@ -1,0 +1,24 @@
+# Keep the build context small, and keep local secrets out of the image.
+.git
+.gitignore
+.claude
+.venv
+venv
+
+# Every .env variant — backend/.env holds a real API key, and the image takes its
+# settings from the environment App Runner injects instead.
+**/.env
+**/.env.*
+
+# Rebuilt inside the image
+**/node_modules
+frontend/dist
+backend/static
+
+**/__pycache__
+**/*.py[cod]
+**/*.tsbuildinfo
+
+docker-compose.yml
+Dockerfile
+README.md

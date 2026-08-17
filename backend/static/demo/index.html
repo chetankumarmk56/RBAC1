@@ -1,0 +1,1409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>RBAC Demo — Scenarios & Pipeline</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Same faces the app loads; falls back to the local stacks below when offline. -->
+<link
+  href="https://fonts.googleapis.com/css2?family=Karla:ital,wght@0,300..700;1,400&family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=JetBrains+Mono:wght@400;500&display=swap"
+  rel="stylesheet">
+
+<style>
+  /* ---- Light palette: complete token set, mirrored from the app's index.css ---- */
+  :root {
+    --font-sans: 'Karla', ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, sans-serif;
+    --font-serif: 'Newsreader', ui-serif, Georgia, 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --paper: #f7f5f0;
+    --surface: #fffefb;
+    --sunk: #efece4;
+    --ink: #23211d;
+    --ink-mid: #4a443b;
+    --ink-soft: #6c665a;
+    --ink-faint: #9c9486;
+    --line: #e3ded2;
+    --line-soft: #ece8de;
+
+    --clay: #b4552f;
+    --clay-ink: #9c4526;
+    --clay-wash: #f6e7df;
+
+    --allow: #3d7551;
+    --allow-wash: #e6f0e7;
+    --deny: #a63b30;
+    --deny-wash: #f8e6e2;
+
+    --radius: 14px;
+    --radius-sm: 9px;
+    --shadow-sm: 0 1px 2px rgba(35, 33, 29, 0.05);
+    --shadow-lg: 0 12px 32px -12px rgba(35, 33, 29, 0.22), 0 2px 6px rgba(35, 33, 29, 0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #1c1b18;
+      --surface: #232220;
+      --sunk: #2b2926;
+      --ink: #edeae3;
+      --ink-mid: #c9c3b6;
+      --ink-soft: #a8a294;
+      --ink-faint: #7d766a;
+      --line: #35332e;
+      --line-soft: #2e2c28;
+      --clay: #d9825c;
+      --clay-ink: #e8a183;
+      --clay-wash: #392a22;
+      --allow: #7fbf95;
+      --allow-wash: #24322a;
+      --deny: #e08376;
+      --deny-wash: #382623;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 14px 36px -14px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #1c1b18;
+    --surface: #232220;
+    --sunk: #2b2926;
+    --ink: #edeae3;
+    --ink-mid: #c9c3b6;
+    --ink-soft: #a8a294;
+    --ink-faint: #7d766a;
+    --line: #35332e;
+    --line-soft: #2e2c28;
+    --clay: #d9825c;
+    --clay-ink: #e8a183;
+    --clay-wash: #392a22;
+    --allow: #7fbf95;
+    --allow-wash: #24322a;
+    --deny: #e08376;
+    --deny-wash: #382623;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 14px 36px -14px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--clay-ink); }
+
+  :focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+
+  code { font-family: var(--font-mono); font-size: 0.86em; }
+
+  ::selection { background: var(--clay-wash); color: var(--clay-ink); }
+
+  .wrap { max-width: 72rem; margin: 0 auto; padding: 0 1.6rem; }
+
+  /* ---------------------------------------------------------------- masthead */
+  .masthead {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .masthead .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.2rem;
+    min-height: 4.1rem;
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .brand { display: flex; align-items: center; gap: 0.65rem; }
+
+  .brand-mark {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: var(--radius-sm);
+    background: var(--clay);
+    color: #fffefb;
+    font-family: var(--font-serif);
+    font-size: 1.1rem;
+    font-weight: 600;
+    flex: none;
+  }
+
+  .brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+  .brand-name { font-family: var(--font-serif); font-size: 1.06rem; font-weight: 600; }
+  .brand-sub {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .head-right { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
+
+  .segmented {
+    display: inline-flex;
+    background: var(--sunk);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 3px;
+    gap: 3px;
+  }
+
+  .segmented button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.95rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.14s ease, color 0.14s ease;
+  }
+
+  .segmented button:hover { color: var(--ink); }
+
+  .segmented button[aria-selected="true"] {
+    background: var(--surface);
+    color: var(--clay-ink);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .back-link {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .back-link:hover { color: var(--clay-ink); }
+
+  /* ---------------------------------------------------------------- panels */
+  [role="tabpanel"] { padding-bottom: 5rem; }
+  [role="tabpanel"][hidden] { display: none; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    [role="tabpanel"]:not([hidden]) { animation: rise 0.28s ease both; }
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* ---------------------------------------------------------------- lede */
+  .lede { padding: 3.2rem 0 2.4rem; border-bottom: 1px solid var(--line); }
+
+  .lede h1 {
+    font-family: var(--font-serif);
+    font-size: clamp(2rem, 5vw, 2.9rem);
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    margin: 0 0 0.9rem;
+    max-width: 20ch;
+    text-wrap: balance;
+  }
+
+  .lede p { margin: 0; max-width: 46rem; color: var(--ink-mid); }
+  .lede p + p { margin-top: 0.7rem; }
+
+  .thesis {
+    margin-top: 1.5rem;
+    padding: 1rem 1.2rem;
+    background: var(--clay-wash);
+    border: 1px solid color-mix(in srgb, var(--clay) 28%, transparent);
+    border-radius: var(--radius);
+    max-width: 46rem;
+  }
+
+  .thesis p {
+    margin: 0;
+    font-family: var(--font-serif);
+    font-size: 1.14rem;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+
+  /* ---------------------------------------------------------------- headings */
+  .sec-head { display: flex; align-items: baseline; gap: 0.9rem; margin: 3.2rem 0 0.8rem; }
+
+  .sec-head h2 {
+    font-family: var(--font-serif);
+    font-size: 1.6rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+
+  .sec-head .rule { flex: 1; height: 1px; background: var(--line); }
+
+  .sec-note { max-width: 46rem; color: var(--ink-soft); font-size: 0.92rem; margin: 0 0 1.4rem; }
+
+  /* ---------------------------------------------------------------- matrix */
+  .table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  table.matrix {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 40rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  table.matrix th, table.matrix td {
+    padding: 0.55rem 0.9rem;
+    text-align: center;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 0.85rem;
+  }
+
+  table.matrix thead th {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 500;
+    background: var(--sunk);
+    white-space: nowrap;
+  }
+
+  table.matrix tbody th {
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    font-weight: 400;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  table.matrix tbody tr:last-child th,
+  table.matrix tbody tr:last-child td { border-bottom: 0; }
+
+  .yes { color: var(--allow); font-weight: 700; }
+  .no { color: var(--deny); opacity: 0.7; }
+
+  /* ---------------------------------------------------------------- cards */
+  .scenarios { display: flex; flex-direction: column; gap: 1.6rem; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.7rem 1.5rem;
+    background: var(--sunk);
+    border-bottom: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .card-head .n { color: var(--clay-ink); font-weight: 500; }
+  .card-head .gate { color: var(--ink-faint); }
+
+  .card-body { padding: 1.7rem 1.5rem 1.8rem; }
+
+  .card-body h3 {
+    font-family: var(--font-serif);
+    font-size: clamp(1.4rem, 3vw, 1.72rem);
+    font-weight: 500;
+    line-height: 1.18;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.6rem;
+    max-width: 26ch;
+    text-wrap: balance;
+  }
+
+  .card-body .lead { margin: 0; max-width: 48rem; color: var(--ink-mid); font-size: 0.97rem; }
+
+  .label {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 1.8rem 0 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+
+  .label::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+
+  /* ---------------------------------------------------------------- turns */
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+  @media (max-width: 48rem) { .pair { grid-template-columns: 1fr; } }
+
+  .turn {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--paper);
+    padding: 1rem 1.1rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .turn.allow { border-color: color-mix(in srgb, var(--allow) 42%, var(--line)); }
+  .turn.deny { border-color: color-mix(in srgb, var(--deny) 42%, var(--line)); }
+
+  .turn-top { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    font-weight: 500;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+
+  .chip.role { background: var(--clay-wash); color: var(--clay-ink); border-color: color-mix(in srgb, var(--clay) 30%, transparent); }
+  .chip.ok { background: var(--allow-wash); color: var(--allow); border-color: color-mix(in srgb, var(--allow) 34%, transparent); }
+  .chip.bad { background: var(--deny-wash); color: var(--deny); border-color: color-mix(in srgb, var(--deny) 34%, transparent); }
+  .chip.plain { background: var(--surface); color: var(--ink-soft); border-color: var(--line); }
+
+  .ask {
+    font-family: var(--font-serif);
+    font-size: 1.08rem;
+    line-height: 1.38;
+    margin: 0;
+    color: var(--ink);
+  }
+
+  .ask::before { content: "\201C"; }
+  .ask::after { content: "\201D"; }
+
+  .reply {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--ink-mid);
+    padding-top: 0.6rem;
+    border-top: 1px dashed var(--line);
+  }
+
+  .trace {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-family: var(--font-mono);
+    font-size: 0.71rem;
+    color: var(--ink-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .trace li { display: flex; gap: 0.5rem; }
+  .trace li::before { content: "\2192"; color: var(--ink-faint); }
+  .trace .hit { color: var(--allow); }
+  .trace .miss { color: var(--deny); }
+
+  /* ---------------------------------------------------------------- code */
+  .src { border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+
+  /* Every code block cites the file and line it was lifted from, and links there. */
+  .src-file {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    padding: 0.45rem 1rem;
+    background: var(--sunk);
+    border-bottom: 1px solid var(--line);
+    color: var(--clay-ink);
+    text-decoration: none;
+  }
+
+  .src-file .arrow { color: var(--ink-faint); transition: color 0.14s ease; }
+  .src-file:hover { text-decoration: underline; text-underline-offset: 2px; }
+  .src-file:hover .arrow { color: var(--clay); }
+
+  .src pre {
+    margin: 0;
+    padding: 1.1rem 1rem;
+    background: var(--paper);
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.65;
+    color: var(--ink);
+    tab-size: 4;
+  }
+
+  .src .c { color: var(--ink-faint); font-style: italic; }
+  .src .k { color: var(--clay-ink); }
+  .src .s { color: var(--allow); }
+  .src .hl { background: var(--clay-wash); display: inline-block; width: 100%; }
+
+  .src + .src { margin-top: 0.8rem; }
+
+  .why {
+    margin: 1.6rem 0 0;
+    max-width: 48rem;
+    font-size: 0.97rem;
+    color: var(--ink-mid);
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .why strong { color: var(--ink); }
+
+  .guards { margin: 0.9rem 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.55rem; max-width: 50rem; }
+  .guards li { display: flex; gap: 0.7rem; font-size: 0.92rem; color: var(--ink-mid); }
+  .guards li::before { content: "\25AA"; color: var(--clay); flex: none; }
+
+  /* ---------------------------------------------------------------- diagram */
+  figure { margin: 0; }
+
+  .fig-scroll {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    padding: 1.6rem 1.2rem;
+  }
+
+  .fig-scroll svg { display: block; min-width: 47rem; width: 100%; max-width: 62rem; margin: 0 auto; height: auto; }
+
+  figcaption { margin-top: 0.9rem; font-size: 0.88rem; color: var(--ink-soft); max-width: 52rem; }
+
+  /* SVG element styling — themable, kept out of the fragment */
+  .d-box { fill: var(--paper); stroke: var(--ink-faint); stroke-width: 1.2; }
+  .d-llm { fill: var(--paper); stroke: var(--ink-faint); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .d-gate { fill: var(--clay-wash); stroke: var(--clay); stroke-width: 1.7; }
+  .d-db { fill: var(--sunk); stroke: var(--ink-soft); stroke-width: 1.2; }
+  .d-line { stroke: var(--ink-faint); stroke-width: 1.3; fill: none; }
+  .d-deny { stroke: var(--deny); stroke-width: 1.3; fill: none; stroke-dasharray: 6 4; }
+  .d-arrow { fill: var(--ink-faint); }
+  .d-arrow-deny { fill: var(--deny); }
+  .d-t { fill: var(--ink); font-family: var(--font-sans); font-size: 13px; font-weight: 600; }
+  .d-sub { fill: var(--ink-soft); font-family: var(--font-mono); font-size: 10px; }
+  .d-tag { fill: var(--ink-faint); font-family: var(--font-mono); font-size: 10px; }
+  .d-gt { fill: var(--clay-ink); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.09em; }
+  .d-dt { fill: var(--deny); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.3rem;
+    margin-top: 1rem;
+    padding: 0.8rem 1.1rem;
+    background: var(--sunk);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-mid);
+  }
+
+  .legend span { display: flex; align-items: center; gap: 0.55rem; }
+  .legend i { width: 1.6rem; height: 0; border-top: 2px solid var(--ink-faint); flex: none; }
+  .legend i.dash { border-top-style: dashed; }
+  .legend i.den { border-color: var(--deny); border-top-style: dashed; }
+  .legend i.gate { border-color: var(--clay); border-top-width: 3px; }
+
+  /* ---------------------------------------------------------------- stages */
+  .stages {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+
+  .stage {
+    display: grid;
+    grid-template-columns: 13.5rem 1fr;
+    gap: 1.3rem;
+    padding: 1.1rem 1.4rem;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .stage:last-child { border-bottom: 0; }
+  .stage.is-gate { background: var(--clay-wash); }
+
+  @media (max-width: 48rem) { .stage { grid-template-columns: 1fr; gap: 0.4rem; } }
+
+  .stage-key { display: flex; flex-direction: column; gap: 0.15rem; align-items: flex-start; }
+
+  /* The citation: where this stage actually lives in the repo. */
+  .stage-src {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    margin-top: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    text-decoration: none;
+    text-wrap: balance;
+  }
+
+  .stage-src .arrow { color: var(--ink-faint); transition: color 0.14s ease; }
+  .stage-src:hover { color: var(--clay-ink); text-decoration: underline; text-underline-offset: 2px; }
+  .stage-src:hover .arrow { color: var(--clay); }
+
+  .stage-key .n {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .stage.is-gate .stage-key .n { color: var(--clay-ink); }
+
+  .stage-key .fn { font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink); word-break: break-word; }
+
+  .stage-text { margin: 0; font-size: 0.92rem; color: var(--ink-mid); max-width: 52rem; }
+  .stage-text strong { color: var(--ink); }
+
+  /* ---------------------------------------------------------------- notes */
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+  @media (max-width: 52rem) { .notes { grid-template-columns: 1fr; } }
+
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    padding: 1.4rem 1.5rem 1.5rem;
+  }
+
+  .note h4 {
+    font-family: var(--font-serif);
+    font-size: 1.2rem;
+    font-weight: 500;
+    line-height: 1.25;
+    margin: 0 0 0.5rem;
+  }
+
+  .note p { margin: 0; font-size: 0.92rem; color: var(--ink-mid); }
+  .note p + p { margin-top: 0.6rem; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 1.5rem 0 3.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+  }
+
+  footer a { color: var(--ink-soft); }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">R</span>
+      <span class="brand-text">
+        <span class="brand-name">RBAC</span>
+        <span class="brand-sub">Agentic access control</span>
+      </span>
+    </div>
+    <div class="head-right">
+      <div class="segmented" role="tablist" aria-label="View">
+        <button role="tab" id="tab-scenarios" aria-controls="panel-scenarios" aria-selected="true">Scenarios</button>
+        <button role="tab" id="tab-pipeline" aria-controls="panel-pipeline" aria-selected="false" tabindex="-1">Pipeline</button>
+      </div>
+      <a class="back-link" href="/">&larr; Open the app</a>
+    </div>
+  </div>
+</header>
+
+<!-- ================================================================
+     PANEL 1 — SCENARIOS
+     ================================================================ -->
+<main>
+<section id="panel-scenarios" role="tabpanel" aria-labelledby="tab-scenarios" tabindex="0">
+  <div class="wrap">
+
+    <div class="lede">
+      <h1>The model routes. It never authorizes.</h1>
+      <p>An internal HR assistant where five roles ask the same chat box for payroll, attendance, leave, analytics and audit data &mdash; and each one gets a different answer, because access control lives in the backend rather than in a prompt.</p>
+      <p>A planner agent reads the request and picks one of four specialist agents. Those agents choose a tool. Everything after that is plain Python reading permissions out of PostgreSQL.</p>
+      <div class="thesis">
+        <p>Every agent can see all seventeen tools and is instructed never to refuse. Refusing is not their job &mdash; the gates below decide, and they decide the same way whether the request came from the chat box or the console.</p>
+      </div>
+    </div>
+
+    <div class="sec-head">
+      <h2>Who holds what</h2>
+      <div class="rule"></div>
+    </div>
+    <p class="sec-note">Seeded baseline in <code>rbac/permissions.py</code>. At request time these are read from the <code>role_permissions</code> table, never from the file &mdash; which is what makes the runtime changes in Scenario 02 take effect on the very next message.</p>
+
+    <div class="table-scroll">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th scope="col">Permission</th>
+            <th scope="col">Supervisor</th>
+            <th scope="col">Analyst</th>
+            <th scope="col">HR</th>
+            <th scope="col">Admin</th>
+            <th scope="col">Super admin</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">payroll:read</th>       <td class="yes">&check;</td><td class="no">&times;</td><td class="no">&times;</td><td class="yes">&check;</td><td class="yes">&check;</td></tr>
+          <tr><th scope="row">employee:read</th>      <td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td></tr>
+          <tr><th scope="row">attendance:read</th>    <td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td></tr>
+          <tr><th scope="row">performance:read</th>   <td class="yes">&check;</td><td class="yes">&check;</td><td class="no">&times;</td><td class="yes">&check;</td><td class="yes">&check;</td></tr>
+          <tr><th scope="row">leave:read</th>         <td class="no">&times;</td><td class="no">&times;</td><td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td></tr>
+          <tr><th scope="row">analytics:read</th>     <td class="no">&times;</td><td class="yes">&check;</td><td class="no">&times;</td><td class="yes">&check;</td><td class="yes">&check;</td></tr>
+          <tr><th scope="row">reports:read</th>       <td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td><td class="yes">&check;</td></tr>
+          <tr><th scope="row">audit:read</th>         <td class="no">&times;</td><td class="no">&times;</td><td class="no">&times;</td><td class="yes">&check;</td><td class="yes">&check;</td></tr>
+          <tr><th scope="row">permissions:manage</th> <td class="no">&times;</td><td class="no">&times;</td><td class="no">&times;</td><td class="yes">&check;</td><td class="yes">&check;</td></tr>
+          <tr><th scope="row">permissions:write</th>  <td class="no">&times;</td><td class="no">&times;</td><td class="no">&times;</td><td class="no">&times;</td><td class="yes">&check;</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="sec-head">
+      <h2>Five scenarios</h2>
+      <div class="rule"></div>
+    </div>
+    <p class="sec-note">Each one exercises a different gate, and they build on each other: 02 grants what 03 then narrows.</p>
+
+    <div class="scenarios">
+
+      <!-- ---------------- 01 ---------------- -->
+      <article class="card">
+        <div class="card-head">
+          <span class="n">Scenario 01</span>
+          <span class="gate">Gate 2 &middot; tool permission</span>
+        </div>
+        <div class="card-body">
+          <h3>One question, two roles, two different answers</h3>
+          <p class="lead">The analyst and the supervisor type the same sentence. The planner reads the same intent, the agent reaches for the same tool, and the two requests diverge only when the backend checks who is asking.</p>
+
+          <div class="label">What the user sees</div>
+          <div class="pair">
+            <div class="turn deny">
+              <div class="turn-top">
+                <span class="chip role">Analyst</span>
+                <span class="chip bad">Denied</span>
+              </div>
+              <p class="ask">What is the average salary in Engineering?</p>
+              <ul class="trace">
+                <li>planner &rarr; payroll intent</li>
+                <li>agent &rarr; <code>get_payroll</code></li>
+                <li class="miss">rbac &rarr; DENIED &middot; payroll:read</li>
+                <li class="miss">database &rarr; not queried</li>
+              </ul>
+              <p class="reply">You don't have permission to access payroll information. Your role (analyst) does not include the <code>payroll:read</code> permission.</p>
+            </div>
+            <div class="turn allow">
+              <div class="turn-top">
+                <span class="chip role">Supervisor</span>
+                <span class="chip ok">Allowed</span>
+                <span class="chip plain">Row-scoped</span>
+              </div>
+              <p class="ask">What is the average salary in Engineering?</p>
+              <ul class="trace">
+                <li>planner &rarr; payroll intent</li>
+                <li>agent &rarr; <code>get_payroll</code></li>
+                <li class="hit">rbac &rarr; ALLOWED &middot; payroll:read</li>
+                <li class="hit">database &rarr; 5 rows</li>
+                <li>scope &rarr; team (see 04)</li>
+              </ul>
+              <p class="reply">Answers with real figures, across the caller's own team only, and says so in the reply.</p>
+            </div>
+          </div>
+
+          <div class="label">Implementation</div>
+          <div class="src">
+            <a class="src-file" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/tools/base.py#L197" target="_blank" rel="noopener">backend/tools/base.py:197<span class="arrow">&#8599;</span></a>
+<pre><span class="c"># The single enforcement point. Every tool call in the system goes through it.</span>
+<span class="k">def</span> execute_tool(tool: Tool, ctx: ToolContext, tool_input: dict) -&gt; ToolResult:
+    <span class="s">"""RBAC check first, database access second.
+
+    Raises PermissionDenied when the check fails, so no query is ever issued.
+    """</span>
+<span class="hl">    check_permission(ctx.principal, tool.required_permission)</span>
+    <span class="k">return</span> apply_field_policy(tool, ctx, tool.handler(ctx, tool_input <span class="k">or</span> {}))</pre>
+          </div>
+          <div class="src">
+            <a class="src-file" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/rbac/service.py#L136" target="_blank" rel="noopener">backend/rbac/service.py:136<span class="arrow">&#8599;</span></a>
+<pre><span class="k">def</span> check_permission(principal: Principal, required_permission: str) -&gt; <span class="k">None</span>:
+    <span class="c"># principal.permissions was read from PostgreSQL for the authenticated user —</span>
+    <span class="c"># never from the request body, the planner, or the LLM's tool arguments.</span>
+    <span class="k">if not</span> principal.has(required_permission):
+        <span class="k">raise</span> PermissionDenied(required_permission, principal.role)</pre>
+          </div>
+
+          <p class="why"><strong>Why it is built this way.</strong> The analyst's agent genuinely tried to call <code>get_payroll</code> &mdash; it was never handed a filtered tool list. Pre-filtering tools per agent would put the language model in charge of access control, and a model can be talked out of a decision. The check sits in front of the handler instead, so a denial costs one function call and the database is never touched.</p>
+        </div>
+      </article>
+
+      <!-- ---------------- 02 ---------------- -->
+      <article class="card">
+        <div class="card-head">
+          <span class="n">Scenario 02</span>
+          <span class="gate">Write path &middot; permissions:write</span>
+        </div>
+        <div class="card-body">
+          <h3>Change who can see what by asking for it</h3>
+          <p class="lead">A super admin does not have to learn the access-control page, find the right role, and hunt for the right checkbox. They say what they want in the chat box, and the same tools the console posts to make the change &mdash; under the same permission check, in the same audit trail.</p>
+
+          <div class="label">What the user sees</div>
+          <div class="pair">
+            <div class="turn allow">
+              <div class="turn-top">
+                <span class="chip role">Super admin</span>
+                <span class="chip ok">Written</span>
+              </div>
+              <p class="ask">Give HR access to payroll.</p>
+              <ul class="trace">
+                <li>planner &rarr; admin_agent</li>
+                <li>agent &rarr; <code>grant_tool_access</code></li>
+                <li class="hit">rbac &rarr; ALLOWED &middot; permissions:write</li>
+                <li class="hit">role_permissions &larr; insert</li>
+                <li>audit &rarr; logged</li>
+              </ul>
+              <p class="reply">HR's very next question about payroll is answered &mdash; no restart, no re-login, because permissions are resolved per request.</p>
+            </div>
+            <div class="turn deny">
+              <div class="turn-top">
+                <span class="chip role">Admin</span>
+                <span class="chip bad">Denied</span>
+              </div>
+              <p class="ask">Revoke the analyst's access to the employee directory.</p>
+              <ul class="trace">
+                <li>planner &rarr; admin_agent</li>
+                <li>agent &rarr; <code>revoke_tool_access</code></li>
+                <li class="miss">rbac &rarr; DENIED &middot; permissions:write</li>
+              </ul>
+              <p class="reply">Admin can read the whole RBAC configuration but cannot change it. That separation is what makes super admin a distinct role rather than a label.</p>
+            </div>
+          </div>
+
+          <div class="label">Implementation</div>
+          <div class="src">
+            <a class="src-file" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/tools/admin_tools.py#L885" target="_blank" rel="noopener">backend/tools/admin_tools.py:885<span class="arrow">&#8599;</span></a>
+<pre>GRANT_TOOL_ACCESS_TOOL = Tool(
+    name=<span class="s">"grant_tool_access"</span>,
+    description=<span class="s">"Give a role access to a tool it cannot currently run."</span>,
+<span class="hl">    required_permission=PERMISSIONS_WRITE,   <span class="c"># only super_admin holds this</span></span>
+    mutates=<span class="k">True</span>,
+    handler=grant_tool_access,
+)</pre>
+          </div>
+          <div class="src">
+            <a class="src-file" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/tools/admin_tools.py#L156" target="_blank" rel="noopener">backend/tools/admin_tools.py:156<span class="arrow">&#8599;</span></a>
+<pre><span class="k">def</span> _change_access(ctx: ToolContext, args: dict, *, grant: bool) -&gt; ToolResult:
+    <span class="s">"""Grant or revoke a role's access to one tool by editing role_permissions."""</span>
+    <span class="c"># Guardrails, all server-side — the model cannot argue past any of them.</span>
+    <span class="k">if</span> role.name <span class="k">in</span> PROTECTED_ROLES:
+        <span class="k">return</span> ToolResult(summary=<span class="s">f"The '{role.name}' role is protected …"</span>)
+
+    <span class="k">if</span> tool.required_permission == PERMISSIONS_WRITE:
+        <span class="k">return</span> ToolResult(summary=<span class="s">f"'{tool.name}' controls RBAC itself and cannot "</span>
+                                  <span class="s">"be granted or revoked from chat."</span>)</pre>
+          </div>
+
+          <div class="label">What stops it going wrong</div>
+          <ul class="guards">
+            <li>The five write tools are gated on <code>permissions:write</code>, held by <code>super_admin</code> alone &mdash; and they run through <code>execute_tool</code> like every read tool, so an unauthorized caller never reaches the handler.</li>
+            <li><code>super_admin</code> is a protected role. Without that, a super admin could revoke their own <code>permissions:write</code> and lock everyone out of RBAC management with no way back short of re-seeding.</li>
+            <li>The write tools cannot grant <em>themselves</em>. No role can talk its way into the ability to hand out permissions.</li>
+            <li>An unknown role or tool name is explained back with the list of valid ones, rather than silently doing nothing and reporting success.</li>
+            <li>Granting a dataset does not grant every column of it &mdash; if columns are still withheld the reply must say so, carried in a dedicated <code>caveat</code> field the responder is forbidden to drop.</li>
+          </ul>
+
+          <p class="why"><strong>Why it is built this way.</strong> The access-control page and the chat box post to the same tools. One implementation, one permission check, one audit trail &mdash; so the conversational path cannot drift into being a weaker version of the console, and there is no second code path to keep in sync.</p>
+        </div>
+      </article>
+
+      <!-- ---------------- 03 ---------------- -->
+      <article class="card">
+        <div class="card-head">
+          <span class="n">Scenario 03</span>
+          <span class="gate">Gate 4 &middot; column policy</span>
+        </div>
+        <div class="card-body">
+          <h3>Holding the dataset is not the same as seeing all of it</h3>
+          <p class="lead">HR has just been granted payroll. They now see base pay &mdash; and not the bonus and deduction breakdown, because column access is a separate grant. The interesting part is what happens when someone tries to get the withheld figure back by arithmetic.</p>
+
+          <div class="label">What the user sees</div>
+          <div class="pair">
+            <div class="turn allow">
+              <div class="turn-top">
+                <span class="chip role">HR</span>
+                <span class="chip ok">Allowed</span>
+                <span class="chip plain">2 columns withheld</span>
+              </div>
+              <p class="ask">Show me this month's payroll.</p>
+              <ul class="trace">
+                <li class="hit">rbac &rarr; ALLOWED &middot; payroll:read</li>
+                <li class="hit">database &rarr; 12 rows</li>
+                <li class="miss">fields &rarr; bonus, deductions stripped</li>
+              </ul>
+              <p class="reply">A table of base salary and net pay, closing with a clause naming what is missing &mdash; and the responder is instructed never to estimate a withheld value.</p>
+            </div>
+            <div class="turn deny">
+              <div class="turn-top">
+                <span class="chip role">Any role</span>
+                <span class="chip bad">Closure applies</span>
+              </div>
+              <p class="ask">Withhold base salary but leave bonus, deductions and net pay.</p>
+              <ul class="trace">
+                <li>net_pay + deductions &minus; bonus</li>
+                <li class="miss">= base_salary, exactly</li>
+                <li class="miss">&rarr; all four withheld</li>
+              </ul>
+              <p class="reply">A redaction that can be undone with one subtraction is not a redaction. The policy closes over the arithmetic before any data leaves the server.</p>
+            </div>
+          </div>
+
+          <div class="label">Implementation</div>
+          <div class="src">
+            <a class="src-file" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/rbac/datasets.py#L128" target="_blank" rel="noopener">backend/rbac/datasets.py:128<span class="arrow">&#8599;</span></a>
+<pre><span class="c"># The four money columns satisfy net_pay = base_salary + bonus - deductions, so any</span>
+<span class="c"># three give the fourth. Each names the other three: withholding one withholds all</span>
+<span class="c"># four, and there is no arrangement that hands a role three and calls the fourth</span>
+<span class="c"># private. Withholding *two* is still allowed — that leaves only their difference</span>
+<span class="c"># derivable, which is how HR sees base pay without the bonus/deduction split.</span>
+FieldSpec(<span class="s">"base_salary"</span>, <span class="s">"Base salary"</span>, reconstructed_by=(<span class="s">"bonus"</span>, <span class="s">"deductions"</span>, <span class="s">"net_pay"</span>)),
+FieldSpec(<span class="s">"net_pay"</span>,     <span class="s">"Net pay"</span>,     reconstructed_by=(<span class="s">"base_salary"</span>, <span class="s">"bonus"</span>, <span class="s">"deductions"</span>),
+                                       derived=(<span class="s">"total_net_pay"</span>,)),</pre>
+          </div>
+          <div class="src">
+            <a class="src-file" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/rbac/datasets.py#L77" target="_blank" rel="noopener">backend/rbac/datasets.py:77 &mdash; DatasetSpec.effective_withheld<span class="arrow">&#8599;</span></a>
+<pre>withheld = {spec.key <span class="k">for</span> spec <span class="k">in</span> self.fields
+            <span class="k">if not</span> spec.locked <span class="k">and</span> spec.key <span class="k">not in</span> granted}
+
+<span class="c"># Close over reconstruction: when every column that determines a withheld field</span>
+<span class="c"># is visible, the withheld figure is one subtraction away — so withhold those too.</span>
+<span class="k">while</span> changed:
+    <span class="k">for</span> key <span class="k">in</span> list(withheld):
+        siblings = [by_key[name] <span class="k">for</span> name <span class="k">in</span> spec.reconstructed_by <span class="k">if</span> name <span class="k">in</span> by_key]
+        <span class="c"># Only a *complete* set reconstructs the field. If one is already</span>
+        <span class="c"># withheld the sum cannot be solved, and the rest stay visible.</span>
+        <span class="k">if not</span> siblings <span class="k">or</span> any(sibling.key <span class="k">in</span> withheld <span class="k">for</span> sibling <span class="k">in</span> siblings):
+            <span class="k">continue</span>
+        <span class="k">for</span> sibling <span class="k">in</span> siblings:
+<span class="hl">            withheld.add(sibling.key)</span></pre>
+          </div>
+
+          <p class="why"><strong>Why it is built this way.</strong> Stripping happens in <code>execute_tool</code>, after the handler and before the agent &mdash; so a column the role may not see never enters the model's context and cannot leak through a paraphrase. Aggregates computed from a withheld column go with it, so the figure cannot be read back off a total either.</p>
+        </div>
+      </article>
+
+      <!-- ---------------- 04 ---------------- -->
+      <article class="card">
+        <div class="card-head">
+          <span class="n">Scenario 04</span>
+          <span class="gate">Gate 3 &middot; row scope</span>
+        </div>
+        <div class="card-body">
+          <h3>Same permission, fewer rows</h3>
+          <p class="lead">The supervisor holds <code>payroll:read</code> outright. It still only reaches their own reports, because how far a role's rows extend is stored separately from whether it may read the table at all.</p>
+
+          <div class="label">What the user sees</div>
+          <div class="pair">
+            <div class="turn allow">
+              <div class="turn-top">
+                <span class="chip role">Supervisor</span>
+                <span class="chip ok">Allowed</span>
+                <span class="chip plain">scope: team</span>
+              </div>
+              <p class="ask">List everyone's attendance this month.</p>
+              <ul class="trace">
+                <li class="hit">rbac &rarr; ALLOWED &middot; attendance:read</li>
+                <li>scope &rarr; self + direct reports</li>
+                <li class="hit">database &rarr; 5 employees</li>
+              </ul>
+              <p class="reply">"Across your team" &mdash; the reply carries the scope note, so a partial answer is never mistaken for the whole company.</p>
+            </div>
+            <div class="turn allow">
+              <div class="turn-top">
+                <span class="chip role">Analyst</span>
+                <span class="chip ok">Allowed</span>
+                <span class="chip plain">scope: all</span>
+              </div>
+              <p class="ask">List everyone's attendance this month.</p>
+              <ul class="trace">
+                <li class="hit">rbac &rarr; ALLOWED &middot; attendance:read</li>
+                <li>scope &rarr; all (no row restriction)</li>
+                <li class="hit">database &rarr; every employee</li>
+              </ul>
+              <p class="reply">Same permission, same tool, wider reach &mdash; and still no compensation columns, because that is Gate 4's business.</p>
+            </div>
+          </div>
+
+          <div class="label">Implementation</div>
+          <div class="src">
+            <a class="src-file" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/tools/base.py#L98" target="_blank" rel="noopener">backend/tools/base.py:98<span class="arrow">&#8599;</span></a>
+<pre><span class="k">def</span> visible_employee_ids(ctx: ToolContext) -&gt; list[int] | <span class="k">None</span>:
+    <span class="s">"""Row-level scope, read from the caller's role: all | department | team | self.
+
+    This is scoping, not authorization — a role still needs payroll:read to reach
+    payroll at all; this only narrows *which rows* it gets.
+    """</span>
+    scope = ctx.principal.row_scope
+    <span class="k">if</span> scope == SCOPE_ALL:
+        <span class="k">return None</span>                              <span class="c"># no row restriction</span>
+
+    <span class="k">if</span> ctx.principal.employee_id <span class="k">is None</span>:
+        <span class="k">return</span> []                                <span class="c"># no anchor to scope from</span>
+
+    <span class="c"># SCOPE_TEAM: the caller plus their direct reports.</span>
+    reports = ctx.db.scalars(
+        select(Employee.id).where(Employee.manager_id == ctx.principal.employee_id)
+    ).all()
+    <span class="k">return</span> [ctx.principal.employee_id, *reports]</pre>
+          </div>
+
+          <p class="why"><strong>Why it is built this way.</strong> Scope resolves against the employee row the login is linked to, not against anything the request carries &mdash; so a supervisor cannot widen their own reach by rephrasing the question. A login with no linked employee record sees nothing under a narrow scope, because there is no anchor to scope from.</p>
+        </div>
+      </article>
+
+      <!-- ---------------- 05 ---------------- -->
+      <article class="card">
+        <div class="card-head">
+          <span class="n">Scenario 05</span>
+          <span class="gate">Gate 1 &middot; model access</span>
+        </div>
+        <div class="card-body">
+          <h3>The language model is a permission too</h3>
+          <p class="lead">Which LLM a role may run lives in the <code>role_models</code> table and is resolved per request, exactly like <code>payroll:read</code>. Analysts run high-volume lookups, so they hold the cheap tiers only &mdash; asking for Opus is a refusal, and it happens before a provider is ever called.</p>
+
+          <div class="label">What the user sees</div>
+          <div class="pair">
+            <div class="turn deny">
+              <div class="turn-top">
+                <span class="chip role">Analyst</span>
+                <span class="chip bad">Denied</span>
+                <span class="chip plain">0 tokens spent</span>
+              </div>
+              <p class="ask">&hellip;with Claude Opus selected in the model picker</p>
+              <ul class="trace">
+                <li class="miss">model gate &rarr; DENIED &middot; model:claude-opus</li>
+                <li class="miss">provider &rarr; never called</li>
+                <li>audit &rarr; logged like any denial</li>
+              </ul>
+              <p class="reply">Your role (analyst) is not allowed to use Claude Opus. Models you can use: Claude Haiku, Gemini.</p>
+            </div>
+            <div class="turn allow">
+              <div class="turn-top">
+                <span class="chip role">Analyst</span>
+                <span class="chip ok">Allowed</span>
+                <span class="chip plain">fallback chain</span>
+              </div>
+              <p class="ask">&hellip;with Claude Haiku selected</p>
+              <ul class="trace">
+                <li class="hit">model gate &rarr; ALLOWED &middot; claude-haiku</li>
+                <li>chain &rarr; haiku &rarr; gemini</li>
+                <li>planner &rarr; runs</li>
+              </ul>
+              <p class="reply">The picked model runs first; the rest of the role's models stand behind it as fallbacks if a provider is unreachable.</p>
+            </div>
+          </div>
+
+          <div class="label">Implementation</div>
+          <div class="src">
+            <a class="src-file" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/agents/executor.py#L134" target="_blank" rel="noopener">backend/agents/executor.py:134 &mdash; first thing in the pipeline<span class="arrow">&#8599;</span></a>
+<pre><span class="c"># 0. Model gate. A model the role does not hold is refused here — no provider is</span>
+<span class="c">#    called, and the refusal is audited like any other RBAC decision.</span>
+<span class="k">try</span>:
+    <span class="k">if</span> requested <span class="k">is not None</span>:
+<span class="hl">        check_model_access(principal, requested)</span>
+    <span class="k">elif not</span> principal.models:
+        <span class="k">raise</span> ModelAccessDenied(<span class="s">"none"</span>, principal.role, [])
+<span class="k">except</span> ModelAccessDenied <span class="k">as</span> exc:
+    log_tool_request(db, principal, agent=MODEL_GATE, tool=<span class="k">None</span>,
+                     required_permission=model_permission(exc.model_key),
+                     decision=DENIED, reason=str(exc), request_summary=message)
+    <span class="k">return</span>  <span class="c"># refusal text written in plain Python, not by a model</span></pre>
+          </div>
+
+          <p class="why"><strong>Why it is built this way.</strong> A permission refusal must never depend on a model being available. A role with no model at all has nothing to write its own refusal with, so that text is deterministic Python &mdash; and denials for a locked model are audited under a pseudo-permission (<code>model:claude-opus</code>) so they read the same as every other decision in the trail.</p>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================
+     PANEL 2 — PIPELINE
+     ================================================================ -->
+<section id="panel-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" tabindex="0" hidden>
+  <div class="wrap">
+
+    <div class="lede">
+      <h1>One message, end to end</h1>
+      <p>Where the four gates sit, and what runs between them. The two agent stages are language-model calls; everything drawn with a solid outline is plain Python reading PostgreSQL, and cannot be argued with.</p>
+    </div>
+
+    <div class="sec-head">
+      <h2>The pipeline</h2>
+      <div class="rule"></div>
+    </div>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 1400" role="img" aria-label="Request pipeline: user to auth to model gate to planner agent to one of four role agents to a tool, then a permission check, the database, row scope, column policy, the audit log, and back through the planner to the user. Denials from the model gate and the permission check branch to the audit log without reaching the database.">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 Z" class="d-arrow"/>
+            </marker>
+            <marker id="arD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 Z" class="d-arrow-deny"/>
+            </marker>
+          </defs>
+
+          <!-- 1. USER -->
+          <rect class="d-box" x="320" y="16" width="280" height="54" rx="8"/>
+          <text class="d-t" x="460" y="40" text-anchor="middle">User</text>
+          <text class="d-sub" x="460" y="57" text-anchor="middle">React chat UI · signed in</text>
+          <line class="d-line" x1="460" y1="70" x2="460" y2="100" marker-end="url(#ar)"/>
+          <text class="d-tag" x="472" y="90">POST /api/chat/stream · JWT</text>
+
+          <!-- 2. AUTH -->
+          <rect class="d-box" x="270" y="104" width="380" height="76" rx="8"/>
+          <text class="d-t" x="460" y="130" text-anchor="middle">Auth → Principal</text>
+          <text class="d-sub" x="460" y="149" text-anchor="middle">role · permissions · allowed models</text>
+          <text class="d-sub" x="460" y="166" text-anchor="middle">row scope · column access</text>
+          <line class="d-line" x1="460" y1="180" x2="460" y2="216" marker-end="url(#ar)"/>
+          <text class="d-tag" x="472" y="202">resolved from PostgreSQL</text>
+
+          <!-- 3. GATE 1 -->
+          <rect class="d-gate" x="240" y="220" width="440" height="72" rx="8"/>
+          <text class="d-gt" x="260" y="242">GATE 1 — MODEL ACCESS</text>
+          <text class="d-t" x="260" y="262">May this role run the model it picked?</text>
+          <text class="d-sub" x="260" y="280">check_model_access() · before any provider is called</text>
+          <line class="d-line" x1="460" y1="292" x2="460" y2="326" marker-end="url(#ar)"/>
+
+          <!-- deny branch 1 — joins the rail down the right, into the audit log -->
+          <path class="d-deny" d="M680 256 L910 256 L910 1143 L748 1143" marker-end="url(#arD)"/>
+          <text class="d-dt" x="694" y="248">DENIED — no provider called</text>
+
+          <!-- 4. PLANNER -->
+          <rect class="d-llm" x="270" y="330" width="380" height="76" rx="8"/>
+          <text class="d-t" x="460" y="356" text-anchor="middle">Planner agent</text>
+          <text class="d-sub" x="460" y="375" text-anchor="middle">names the intent, picks one agent</text>
+          <text class="d-sub" x="460" y="392" text-anchor="middle">never sees permissions</text>
+
+          <!-- fan-out: drop, distribute, then one arrowed leg per agent -->
+          <path class="d-line" d="M460 406 L460 432 M160 432 L760 432"/>
+          <line class="d-line" x1="160" y1="432" x2="160" y2="456" marker-end="url(#ar)"/>
+          <line class="d-line" x1="360" y1="432" x2="360" y2="456" marker-end="url(#ar)"/>
+          <line class="d-line" x1="560" y1="432" x2="560" y2="456" marker-end="url(#ar)"/>
+          <line class="d-line" x1="760" y1="432" x2="760" y2="456" marker-end="url(#ar)"/>
+
+          <!-- 5. AGENTS -->
+          <rect class="d-llm" x="70" y="460" width="180" height="64" rx="8"/>
+          <text class="d-t" x="160" y="484" text-anchor="middle">Supervisor</text>
+          <text class="d-sub" x="160" y="503" text-anchor="middle">sees all 17 tools</text>
+
+          <rect class="d-llm" x="270" y="460" width="180" height="64" rx="8"/>
+          <text class="d-t" x="360" y="484" text-anchor="middle">Analyst</text>
+          <text class="d-sub" x="360" y="503" text-anchor="middle">sees all 17 tools</text>
+
+          <rect class="d-llm" x="470" y="460" width="180" height="64" rx="8"/>
+          <text class="d-t" x="560" y="484" text-anchor="middle">HR</text>
+          <text class="d-sub" x="560" y="503" text-anchor="middle">sees all 17 tools</text>
+
+          <rect class="d-llm" x="670" y="460" width="180" height="64" rx="8"/>
+          <text class="d-t" x="760" y="484" text-anchor="middle">Admin</text>
+          <text class="d-sub" x="760" y="503" text-anchor="middle">sees all 17 tools</text>
+
+          <!-- converge -->
+          <path class="d-line" d="M160 524 L160 548 M360 524 L360 548 M560 524 L560 548 M760 524 L760 548 M160 548 L760 548"/>
+          <line class="d-line" x1="460" y1="548" x2="460" y2="576" marker-end="url(#ar)"/>
+          <text class="d-tag" x="472" y="568">chooses one tool</text>
+
+          <!-- 6. TOOLS -->
+          <rect class="d-box" x="70" y="580" width="780" height="72" rx="8"/>
+          <text class="d-t" x="460" y="606" text-anchor="middle">Tool catalogue — 17 tools</text>
+          <text class="d-sub" x="460" y="625" text-anchor="middle">12 reads · 5 writes — each declares one required_permission</text>
+          <text class="d-sub" x="460" y="642" text-anchor="middle">get_payroll → payroll:read   ·   grant_tool_access → permissions:write</text>
+          <line class="d-line" x1="460" y1="652" x2="460" y2="686" marker-end="url(#ar)"/>
+          <text class="d-tag" x="472" y="674">execute_tool()</text>
+
+          <!-- 7. GATE 2 -->
+          <rect class="d-gate" x="240" y="690" width="440" height="72" rx="8"/>
+          <text class="d-gt" x="260" y="712">GATE 2 — TOOL PERMISSION</text>
+          <text class="d-t" x="260" y="732">Does this role hold the permission?</text>
+          <text class="d-sub" x="260" y="750">check_permission() · runs before the handler</text>
+          <line class="d-line" x1="460" y1="762" x2="460" y2="796" marker-end="url(#ar)"/>
+
+          <!-- deny branch 2 -->
+          <path class="d-deny" d="M680 726 L910 726"/>
+          <text class="d-dt" x="694" y="718">DENIED — database never queried</text>
+
+          <!-- 8. DATABASE -->
+          <rect class="d-db" x="240" y="800" width="440" height="88" rx="8"/>
+          <text class="d-t" x="460" y="826" text-anchor="middle">PostgreSQL</text>
+          <text class="d-sub" x="460" y="845" text-anchor="middle">employees · payroll · attendance · performance · leave</text>
+          <text class="d-sub" x="460" y="862" text-anchor="middle">roles · permissions · role_models · role_field_access</text>
+          <text class="d-sub" x="460" y="879" text-anchor="middle">role_data_scope · audit_logs · conversations</text>
+          <line class="d-line" x1="460" y1="888" x2="460" y2="918" marker-end="url(#ar)"/>
+
+          <!-- 9. GATE 3 -->
+          <rect class="d-gate" x="240" y="922" width="440" height="62" rx="8"/>
+          <text class="d-gt" x="260" y="944">GATE 3 — ROW SCOPE</text>
+          <text class="d-t" x="260" y="963">Which employees' rows are in reach</text>
+          <text class="d-sub" x="260" y="978">all | department | team | self</text>
+          <line class="d-line" x1="460" y1="984" x2="460" y2="1012" marker-end="url(#ar)"/>
+
+          <!-- 10. GATE 4 -->
+          <rect class="d-gate" x="240" y="1016" width="440" height="62" rx="8"/>
+          <text class="d-gt" x="260" y="1038">GATE 4 — COLUMN POLICY</text>
+          <text class="d-t" x="260" y="1057">Strips columns, and their arithmetic</text>
+          <text class="d-sub" x="260" y="1072">apply_field_policy() · before the model sees a row</text>
+          <line class="d-line" x1="460" y1="1078" x2="460" y2="1108" marker-end="url(#ar)"/>
+
+          <!-- 11. AUDIT -->
+          <rect class="d-box" x="180" y="1112" width="560" height="62" rx="8"/>
+          <text class="d-t" x="460" y="1138" text-anchor="middle">Audit log — every decision, allowed or denied</text>
+          <text class="d-sub" x="460" y="1157" text-anchor="middle">user · role · agent · tool · permission · decision · reason · time</text>
+          <line class="d-line" x1="460" y1="1174" x2="460" y2="1204" marker-end="url(#ar)"/>
+
+          <!-- 12. COMPOSE -->
+          <rect class="d-llm" x="270" y="1208" width="380" height="72" rx="8"/>
+          <text class="d-t" x="460" y="1234" text-anchor="middle">Planner agent — writes the reply</text>
+          <text class="d-sub" x="460" y="1253" text-anchor="middle">from the returned data only, never invented</text>
+          <text class="d-sub" x="460" y="1270" text-anchor="middle">on a denial: names the missing permission</text>
+          <line class="d-line" x1="460" y1="1280" x2="460" y2="1310" marker-end="url(#ar)"/>
+          <text class="d-tag" x="472" y="1300">SSE · one frame per stage</text>
+
+          <!-- 13. USER -->
+          <rect class="d-box" x="320" y="1314" width="280" height="54" rx="8"/>
+          <text class="d-t" x="460" y="1338" text-anchor="middle">User</text>
+          <text class="d-sub" x="460" y="1355" text-anchor="middle">answer + the live trace above</text>
+        </svg>
+      </div>
+
+      <div class="legend">
+        <span><i></i> solid — plain Python, enforcing</span>
+        <span><i class="dash"></i> dashed — language model, advisory</span>
+        <span><i class="gate"></i> clay — an RBAC gate</span>
+        <span><i class="den"></i> red — the denial path</span>
+      </div>
+
+      <figcaption>Both denial branches skip everything downstream and land in the audit log. A Gate 2 denial is then phrased by the planner, which is told which permission was missing but never what the data would have said; a Gate 1 denial is written in plain Python instead, because a role with no model at all has nothing to write its own refusal with.</figcaption>
+    </figure>
+
+    <div class="sec-head">
+      <h2>Stage by stage</h2>
+      <div class="rule"></div>
+    </div>
+    <p class="sec-note">Every stage cites the file it lives in. The citations open that file on GitHub at the line the stage starts &mdash; they track <code>main</code>, so they follow the code as it changes.</p>
+
+    <div class="stages">
+      <div class="stage">
+        <div class="stage-key">
+          <span class="n">Stage 00</span><span class="fn">load_principal()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/rbac/service.py#L102" target="_blank" rel="noopener">backend/rbac/service.py:102<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">The JWT identifies a user; everything RBAC needs is then read from PostgreSQL for that user &mdash; role, permissions, allowed models, row scope, column access. <strong>Nothing here reads a role, permission or model supplied by the frontend</strong>, so a forged request body changes nothing.</p>
+      </div>
+
+      <div class="stage is-gate">
+        <div class="stage-key">
+          <span class="n">Gate 1</span><span class="fn">check_model_access()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/rbac/service.py#L142" target="_blank" rel="noopener">backend/rbac/service.py:142<span class="arrow">&#8599;</span></a>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/agents/executor.py#L134" target="_blank" rel="noopener">called at executor.py:134<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">Model choice is RBAC, not configuration. A model the role does not hold in <code>role_models</code> is refused <strong>before any provider is called</strong> &mdash; so a denied request costs nothing and is audited under <code>model:&lt;key&gt;</code>. On success the picked model heads a fallback chain of the rest of the role's models.</p>
+      </div>
+
+      <div class="stage">
+        <div class="stage-key">
+          <span class="n">Stage 01</span><span class="fn">make_plan()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/agents/planner.py#L86" target="_blank" rel="noopener">backend/agents/planner.py:86<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">The planner names the intent and routes to exactly one specialist agent. It is told explicitly to <strong>route on the subject of the question, not on whether the user should be allowed to ask it</strong>. Greetings and questions about the assistant itself route to "none" and are answered without touching a tool.</p>
+      </div>
+
+      <div class="stage">
+        <div class="stage-key">
+          <span class="n">Stage 02</span><span class="fn">select_tool()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/agents/llm.py#L136" target="_blank" rel="noopener">backend/agents/llm.py:136<span class="arrow">&#8599;</span></a>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/agents/role_agents.py#L30" target="_blank" rel="noopener">prompts at role_agents.py:30<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">The chosen agent picks one tool and fills in its arguments. All four agents are handed the same seventeen tools and instructed never to refuse, never to mention permissions, and never to ask the user to confirm their access level. What differs between them is specialisation &mdash; which data source they reach for first.</p>
+      </div>
+
+      <div class="stage is-gate">
+        <div class="stage-key">
+          <span class="n">Gate 2</span><span class="fn">check_permission()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/rbac/service.py#L136" target="_blank" rel="noopener">backend/rbac/service.py:136<span class="arrow">&#8599;</span></a>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/tools/base.py#L197" target="_blank" rel="noopener">called at base.py:197<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">The enforcement point. Every tool declares one required permission, and the check runs inside <code>execute_tool</code> <strong>before the handler</strong> &mdash; so an unauthorized caller never reaches a line of query code, and the database is never touched on a denial.</p>
+      </div>
+
+      <div class="stage">
+        <div class="stage-key">
+          <span class="n">Stage 03</span><span class="fn">tool.handler()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/tools/registry.py#L20" target="_blank" rel="noopener">backend/tools/registry.py:20<span class="arrow">&#8599;</span></a>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/tools/admin_tools.py#L156" target="_blank" rel="noopener">writes at admin_tools.py:156<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">The only path from an agent to the database. Read handlers query; the five write handlers edit <code>role_permissions</code>, <code>role_models</code>, <code>role_field_access</code> or <code>role_data_scope</code> &mdash; which is how a super admin changes access from the chat box.</p>
+      </div>
+
+      <div class="stage is-gate">
+        <div class="stage-key">
+          <span class="n">Gate 3</span><span class="fn">visible_employee_ids()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/tools/base.py#L98" target="_blank" rel="noopener">backend/tools/base.py:98<span class="arrow">&#8599;</span></a>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/rbac/datasets.py#L279" target="_blank" rel="noopener">scopes at datasets.py:279<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">Row reach, resolved against the employee record the login is linked to: every employee, one department, the caller plus their direct reports, or the caller alone. Scoping is not authorization &mdash; a role still needs the permission to reach the table at all. The reply carries a scope note so a partial answer never reads as a complete one.</p>
+      </div>
+
+      <div class="stage is-gate">
+        <div class="stage-key">
+          <span class="n">Gate 4</span><span class="fn">apply_field_policy()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/tools/base.py#L171" target="_blank" rel="noopener">backend/tools/base.py:171<span class="arrow">&#8599;</span></a>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/rbac/datasets.py#L77" target="_blank" rel="noopener">closure at datasets.py:77<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">Columns the role may not see are stripped from the result, along with any aggregate computed from them &mdash; and along with sibling columns that would <strong>reconstruct them by arithmetic</strong>. This runs after the handler and before the agent, so a withheld figure never enters the model's context in the first place.</p>
+      </div>
+
+      <div class="stage">
+        <div class="stage-key">
+          <span class="n">Stage 04</span><span class="fn">log_tool_request()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/rbac/audit.py#L12" target="_blank" rel="noopener">backend/rbac/audit.py:12<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">Every decision is recorded &mdash; who, which role, which agent, which tool, which permission, allowed or denied, and why. Denials are logged as fully as successes, which is what makes the trail worth reading.</p>
+      </div>
+
+      <div class="stage">
+        <div class="stage-key">
+          <span class="n">Stage 05</span><span class="fn">write_reply()</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/agents/planner.py#L106" target="_blank" rel="noopener">backend/agents/planner.py:106<span class="arrow">&#8599;</span></a>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/agents/executor.py#L70" target="_blank" rel="noopener">fallback at executor.py:70<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">The planner turns the outcome into prose. It is instructed to answer <strong>only from the data provided</strong>, to name withheld columns rather than estimate them, and on a denial to say plainly which permission is missing without speculating about what the data would have shown. If no model is reachable, a deterministic refusal is used instead.</p>
+      </div>
+
+      <div class="stage">
+        <div class="stage-key">
+          <span class="n">Transport</span><span class="fn">/api/chat/stream</span>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/api/chat.py#L107" target="_blank" rel="noopener">backend/api/chat.py:107<span class="arrow">&#8599;</span></a>
+          <a class="stage-src" href="https://github.com/chetankumarmk56/RBAC1/blob/main/backend/agents/executor.py#L118" target="_blank" rel="noopener">emitted by executor.py:118<span class="arrow">&#8599;</span></a>
+        </div>
+        <p class="stage-text">Each stage above is emitted as a server-sent event while the work happens, so the interface narrates the pipeline live &mdash; model gate, planner, agent, tool, RBAC, database, field policy, compose &mdash; instead of showing a spinner and then an answer.</p>
+      </div>
+    </div>
+
+    <div class="sec-head">
+      <h2>Two decisions worth defending</h2>
+      <div class="rule"></div>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <h4>Agents are not given restricted tool lists</h4>
+        <p>All four agents see all seventeen tools. Ask the analyst agent for salaries and it will genuinely reach for <code>get_payroll</code> &mdash; Gate 2 is what stops it.</p>
+        <p>Filtering each agent's tools would look tidier and would be worse: it puts the language model in charge of access control, and it hides the boundary this system exists to demonstrate. A model can be talked out of a decision. A permission check cannot.</p>
+      </div>
+      <div class="note">
+        <h4>Four gates, not one</h4>
+        <p>"Can this role read payroll?" is one question out of four. The others are which model may answer, how many employees' rows are in reach, and which columns of the row come back.</p>
+        <p>Collapsing them into a single permission check is how systems end up handing a role a table it half-owns &mdash; or handing out three of four money columns and calling the fourth private.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    FastAPI · SQLAlchemy · PostgreSQL · React —
+    <a href="/walkthrough.html">reviewer's walkthrough</a> ·
+    <a href="/">open the app</a>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+
+    function show(tab) {
+      tabs.forEach(function (t) {
+        var selected = t === tab;
+        t.setAttribute('aria-selected', String(selected));
+        t.tabIndex = selected ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !selected;
+      });
+      // Reflect the view in the URL so /demo#pipeline can be linked directly.
+      history.replaceState(null, '', tab.id === 'tab-pipeline' ? '#pipeline' : location.pathname);
+      window.scrollTo(0, 0);
+    }
+
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { show(tab); });
+      tab.addEventListener('keydown', function (e) {
+        var next = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : -1;
+        if (next < 0 || next >= tabs.length) return;
+        e.preventDefault();
+        tabs[next].focus();
+        show(tabs[next]);
+      });
+    });
+
+    if (location.hash === '#pipeline') show(document.getElementById('tab-pipeline'));
+  })();
+</script>
+</body>
+</html>

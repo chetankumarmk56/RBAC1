@@ -1,0 +1,3 @@
+# Shell scripts must keep LF endings: a CRLF docker-entrypoint.sh fails inside the
+# Linux image with "bad interpreter: /bin/sh^M", and this repo is developed on Windows.
+*.sh text eol=lf

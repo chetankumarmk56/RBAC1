@@ -509,12 +509,31 @@ build it with `VITE_API_BASE_URL=https://your-api-host`. Vite inlines it at buil
 time, so it must be set *before* `npm run build`, not at runtime. Leave it unset in
 development, where the proxy handles `/api`.
 
-**Port.** `backend/main.py` has no `PORT` handling and the repo carries no Procfile or
-Dockerfile, so a platform that injects `$PORT` needs the start command to pass it:
+**Port.** `backend/main.py` has no `PORT` handling, so a platform that injects `$PORT`
+and runs the app without the [Dockerfile](Dockerfile) needs the start command to pass it:
 
 ```bash
 uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
+
+### One container, one origin
+
+The [Dockerfile](Dockerfile) builds the frontend with Vite and copies `dist/` to
+`backend/static`, which `main.py` mounts at `/` after the routers — so a single
+container answers for both the app and `/api`, and neither CORS nor
+`VITE_API_BASE_URL` has anything to do. [docker-entrypoint.sh](docker-entrypoint.sh)
+runs the migration and the `--if-empty` seed before uvicorn, then listens on `$PORT`
+(8080 by default).
+
+```bash
+docker build --platform linux/amd64 -t rbac-poc .
+docker run -p 8080:8080 -e DATABASE_URL=… -e ANTHROPIC_API_KEY=… -e JWT_SECRET=… rbac-poc
+```
+
+[deploy/aws/README.md](deploy/aws/README.md) walks that image onto AWS App Runner, with
+PostgreSQL on RDS. If you cannot create the IAM roles that path needs,
+[deploy/aws/apprunner-from-github.md](deploy/aws/apprunner-from-github.md) builds the same
+service from this repository instead, on a managed Python runtime.
 
 ---
 
@@ -580,7 +599,11 @@ frontend/
     labels.ts         Display names for tools, permissions, roles and models
     types/index.ts    Shared types
 
+deploy/aws/          Two App Runner deployment guides — from ECR, and from GitHub
+
 docker-compose.yml    PostgreSQL 16 for local development
+Dockerfile            Vite build + FastAPI runtime, one image serving both
+docker-entrypoint.sh  Migrate, seed if empty, then uvicorn on $PORT
 ```
 
 ---

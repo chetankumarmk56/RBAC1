@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RBAC Demo Walkthrough</title>
+<style>
+  /* ---- Light palette: complete token set, mirrored from the app's index.css ---- */
+  :root {
+    --font-sans: 'Karla', ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, sans-serif;
+    --font-serif: 'Newsreader', ui-serif, Georgia, 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --paper: #f7f5f0;
+    --surface: #fffefb;
+    --sunk: #efece4;
+    --ink: #23211d;
+    --ink-mid: #4a443b;
+    --ink-soft: #6c665a;
+    --ink-faint: #9c9486;
+    --line: #e3ded2;
+    --line-soft: #ece8de;
+
+    --clay: #b4552f;
+    --clay-ink: #9c4526;
+    --clay-wash: #f6e7df;
+
+    --allow: #3d7551;
+    --allow-wash: #e6f0e7;
+    --deny: #a63b30;
+    --deny-wash: #f8e6e2;
+
+    --radius: 14px;
+    --radius-sm: 9px;
+    --shadow-sm: 0 1px 2px rgba(35, 33, 29, 0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #1c1b18;
+      --surface: #232220;
+      --sunk: #2b2926;
+      --ink: #edeae3;
+      --ink-mid: #c9c3b6;
+      --ink-soft: #a8a294;
+      --ink-faint: #7d766a;
+      --line: #35332e;
+      --line-soft: #2e2c28;
+      --clay: #d9825c;
+      --clay-ink: #e8a183;
+      --clay-wash: #392a22;
+      --allow: #7fbf95;
+      --allow-wash: #24322a;
+      --deny: #e08376;
+      --deny-wash: #382623;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #1c1b18;
+    --surface: #232220;
+    --sunk: #2b2926;
+    --ink: #edeae3;
+    --ink-mid: #c9c3b6;
+    --ink-soft: #a8a294;
+    --ink-faint: #7d766a;
+    --line: #35332e;
+    --line-soft: #2e2c28;
+    --clay: #d9825c;
+    --clay-ink: #e8a183;
+    --clay-wash: #392a22;
+    --allow: #7fbf95;
+    --allow-wash: #24322a;
+    --deny: #e08376;
+    --deny-wash: #382623;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: clamp(2.5rem, 6vw, 4.5rem) clamp(1.15rem, 5vw, 2rem) 5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3rem;
+  }
+
+  /* ---- Masthead ---- */
+  .masthead { display: flex; flex-direction: column; gap: 1rem; }
+  .eyebrow {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    font-weight: 600;
+  }
+  h1 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(2.1rem, 6vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .standfirst {
+    margin: 0;
+    font-size: 1.08rem;
+    color: var(--ink-mid);
+    max-width: 34rem;
+  }
+  .rule { height: 2px; background: var(--clay); width: 3.5rem; border-radius: 2px; }
+
+  /* ---- Callout ---- */
+  .note {
+    background: var(--clay-wash);
+    border-left: 3px solid var(--clay);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    padding: 1rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .note-title {
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--clay-ink);
+  }
+  .note p { margin: 0; font-size: 0.95rem; color: var(--ink); }
+
+  /* ---- Sections ---- */
+  section { display: flex; flex-direction: column; gap: 1.15rem; }
+  h2 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 1.6rem;
+    letter-spacing: -0.01em;
+    margin: 0;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--line);
+    text-wrap: balance;
+  }
+  p { margin: 0; }
+  .lede { color: var(--ink-mid); }
+  a { color: var(--clay-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--clay); outline-offset: 3px; }
+
+  /* ---- Numbered walkthrough steps ---- */
+  .steps { display: flex; flex-direction: column; gap: 1.35rem; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+  .step { display: grid; grid-template-columns: 2.15rem 1fr; gap: 0.35rem 0.9rem; align-items: start; }
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--clay);
+    background: var(--clay-wash);
+    border-radius: 50%;
+    width: 2.15rem; height: 2.15rem;
+    display: grid; place-items: center;
+    margin-top: 0.05rem;
+  }
+  .step h3 {
+    margin: 0;
+    grid-column: 2;
+    font-size: 1.02rem;
+    font-weight: 700;
+    letter-spacing: -0.005em;
+  }
+  .step .body { grid-column: 2; display: flex; flex-direction: column; gap: 0.6rem; }
+  .step .body p { color: var(--ink-mid); }
+  .step .body strong { color: var(--ink); }
+
+  /* ---- The four gates: a real pipeline order, so it is numbered ---- */
+  .gates { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; counter-reset: gate; }
+  .gate {
+    display: grid;
+    grid-template-columns: 1.6rem 1fr;
+    gap: 0.15rem 0.85rem;
+    padding: 0.85rem 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .gate:last-child { border-bottom: none; }
+  .gate::before {
+    counter-increment: gate;
+    content: counter(gate);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--clay);
+    padding-top: 0.24rem;
+  }
+  .gate-name { font-weight: 700; font-size: 0.98rem; }
+  .gate-where {
+    grid-column: 2;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+  }
+  .gate-what { grid-column: 2; color: var(--ink-mid); font-size: 0.95rem; margin-top: 0.3rem; }
+
+  /* ---- Inline mono ---- */
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--sunk);
+    padding: 0.12em 0.4em;
+    border-radius: 5px;
+    color: var(--ink);
+  }
+
+  /* ---- Prompt: something to type verbatim into the chat box ---- */
+  .prompt {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 0.65rem 0.95rem;
+    font-family: var(--font-serif);
+    font-size: 1.02rem;
+    color: var(--ink);
+    box-shadow: var(--shadow-sm);
+  }
+  .prompt::before { content: '“'; color: var(--ink-faint); }
+  .prompt::after { content: '”'; color: var(--ink-faint); }
+  .prompt.action { font-family: var(--font-sans); font-size: 0.95rem; color: var(--ink-mid); font-style: italic; }
+  .prompt.action::before, .prompt.action::after { content: ''; }
+
+  /* ---- Verdict chips ---- */
+  .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.32rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .chip.allow { background: var(--allow-wash); color: var(--allow); border-color: var(--allow); }
+  .chip.deny  { background: var(--deny-wash);  color: var(--deny);  border-color: var(--deny); }
+  .chip.allow::before, .chip.deny::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  }
+
+  /* ---- Refusal quote ---- */
+  .refusal {
+    border-left: 3px solid var(--deny);
+    background: var(--deny-wash);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    padding: 0.75rem 1rem;
+    font-size: 0.92rem;
+    color: var(--ink);
+  }
+
+  /* ---- Tables ---- */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; background: var(--surface); }
+  th, td { text-align: left; padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th {
+    font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-soft); font-weight: 700; background: var(--sunk);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td code { background: none; padding: 0; color: var(--clay-ink); }
+  td.rows { font-family: var(--font-mono); font-size: 0.8rem; }
+  td.verdict { white-space: nowrap; font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600; }
+  td.verdict.yes { color: var(--allow); }
+  td.verdict.no { color: var(--deny); }
+
+  ul.plain { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.55rem; color: var(--ink-mid); }
+  ul.plain strong { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="rule"></div>
+    <span class="eyebrow">Reviewer's guide</span>
+    <h1>RBAC Demo Walkthrough</h1>
+    <p class="standfirst">
+      A chat interface over an HR database. The model decides <em>what to try</em>;
+      the backend decides what is allowed. Everything below runs in the browser —
+      nothing to install.
+    </p>
+  </header>
+
+  <div class="note">
+    <span class="note-title">Read this first</span>
+    <p>
+      The API sleeps after inactivity. The first sign-in of the day can take up to a
+      minute while it wakes, and the button will look stuck. Give it 60 seconds.
+      Everything after that is fast.
+    </p>
+  </div>
+
+  <section>
+    <h2>Seeing it run</h2>
+    <ol class="steps">
+
+      <li class="step">
+        <h3>Open the app and sign in</h3>
+        <div class="body">
+          <p>
+            Go to <a href="https://rbac-1-two.vercel.app">rbac-1-two.vercel.app</a>.
+            You do not need to type anything — the five demo accounts are listed as
+            cards at the bottom of the sign-in screen, and clicking one fills in both
+            the email and the password for you.
+          </p>
+          <p>
+            Click the <strong>Hr</strong> card, then press <strong>Sign in</strong>.
+            Switching roles later is the same move: sign out, click a different card,
+            sign in.
+          </p>
+        </div>
+      </li>
+
+      <li class="step">
+        <h3>Ask something HR is allowed to ask</h3>
+        <div class="body">
+          <p>Click the first starter prompt:</p>
+          <div class="prompt">Show me employees currently on leave.</div>
+          <p>
+            The status line names each stage as it happens. When the answer lands, the
+            trace strip records the tool, the permission, the decision, the row count
+            and which model answered.
+          </p>
+          <div class="chips"><span class="chip allow">ALLOWED · leave:read</span></div>
+        </div>
+      </li>
+
+      <li class="step">
+        <h3>Ask something it is not</h3>
+        <div class="body">
+          <p>The fourth starter in every role is deliberately out of bounds:</p>
+          <div class="prompt">Show me payroll information.</div>
+          <p>
+            HR has no <code>payroll:read</code>. The refusal happens inside the tool,
+            before any SQL runs — the database is never touched and the model never
+            sees a salary.
+          </p>
+          <div class="chips"><span class="chip deny">DENIED · payroll:read</span></div>
+        </div>
+      </li>
+
+      <li class="step">
+        <h3>Try a model the role cannot use</h3>
+        <div class="body">
+          <p>
+            Sign in as <strong>Analyst</strong>. The composer's model picker lists
+            every model — the ones this role cannot use are marked 🔒.
+          </p>
+          <div class="prompt action">Pick “Claude Opus 🔒” and send anything.</div>
+          <div class="refusal">
+            <strong>Model access denied — Claude Opus. No model was called.</strong>
+          </div>
+          <p>Access control covers which LLM may run, not just which data it may reach.</p>
+        </div>
+      </li>
+
+      <li class="step">
+        <h3>Move a boundary while the app runs</h3>
+        <div class="body">
+          <p>Sign in as <strong>Super Admin</strong> and grant the analyst payroll:</p>
+          <div class="prompt">Give the analyst role access to payroll.</div>
+          <p>
+            Sign back in as <strong>Analyst</strong> and ask
+            <em>"Show me employee salaries."</em> It is now allowed. No restart and no
+            re-seed — permissions are read fresh from the database on every message.
+          </p>
+        </div>
+      </li>
+
+      <li class="step">
+        <h3>Open the access control console</h3>
+        <div class="body">
+          <p>
+            Still as Super Admin, open <strong>Access control</strong> in the sidebar.
+            Three tabs — <strong>Tools</strong>, <strong>Data</strong> (rows, datasets
+            and columns) and <strong>Models</strong>. Every control calls the same
+            tools the chat agent uses, so both surfaces share one audit trail.
+          </p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>The five roles</h2>
+    <p class="lede">Each sees a different slice of the same database, along four axes at once.</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Sign in as</th><th>Models (best first)</th><th>Rows</th><th>Columns withheld</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>supervisor</code></td>
+            <td>Sonnet · Haiku · Gemini</td>
+            <td class="rows">team</td>
+            <td>Why someone is on leave</td>
+          </tr>
+          <tr>
+            <td><code>analyst</code></td>
+            <td>Haiku · Gemini</td>
+            <td class="rows">all</td>
+            <td>Email, all payroll figures, reviewer and comments, leave reason</td>
+          </tr>
+          <tr>
+            <td><code>hr</code></td>
+            <td>Sonnet · Haiku · Gemini</td>
+            <td class="rows">all</td>
+            <td>Bonus and deductions</td>
+          </tr>
+          <tr>
+            <td><code>admin</code></td>
+            <td>Opus · Sonnet · Haiku · Gemini</td>
+            <td class="rows">all</td>
+            <td>None — reads everything, changes nothing</td>
+          </tr>
+          <tr>
+            <td><code>superadmin</code></td>
+            <td>Opus · Sonnet · Haiku · Gemini</td>
+            <td class="rows">all</td>
+            <td>None — the only role that can change access</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede" style="font-size: 0.95rem;">
+      The supervisor account is linked to an employee record, so a row scope of
+      <code>team</code> means themselves plus their four direct reports — 5 of the 12
+      employees.
+    </p>
+  </section>
+
+  <section>
+    <h2>Four gates, in this order</h2>
+    <p class="lede">
+      Those differences are not one check. A request passes four independent gates, each
+      in a different place in the pipeline, and none of them is visible to the model.
+    </p>
+    <ol class="gates">
+      <li class="gate">
+        <span class="gate-name">Model access</span>
+        <span class="gate-where">before the planner runs</span>
+        <span class="gate-what">Is the role allowed to use the LLM it asked for? A refusal here contacts no provider at all.</span>
+      </li>
+      <li class="gate">
+        <span class="gate-name">Permission</span>
+        <span class="gate-where">inside the tool, before any SQL</span>
+        <span class="gate-what">May this role run this tool? A denied request issues zero SQL statements.</span>
+      </li>
+      <li class="gate">
+        <span class="gate-name">Row scope</span>
+        <span class="gate-where">inside each handler</span>
+        <span class="gate-what">Whose records are in scope — everyone, one department, the caller's team, or only themselves.</span>
+      </li>
+      <li class="gate">
+        <span class="gate-name">Column policy</span>
+        <span class="gate-where">after the query, before the agent sees the rows</span>
+        <span class="gate-what">Which columns survive, along with any total computed from a withheld one.</span>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>A scenario</h2>
+    <p class="lede">
+      Daniel Okafor is a senior backend engineer. He reports to Priya Sharma, who leads
+      Engineering. Five people ask the assistant the same question:
+    </p>
+    <div class="prompt">What does Daniel Okafor earn?</div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Who is asking</th><th>Result</th><th>Which gate decided</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Priya</strong><br><code>supervisor</code></td>
+            <td class="verdict yes">ANSWERED</td>
+            <td>All four pass. She holds <code>payroll:read</code>, and Daniel is one of her four direct reports, so he falls inside her <code>team</code> row scope.</td>
+          </tr>
+          <tr>
+            <td><strong>Sofia</strong><br><code>analyst</code></td>
+            <td class="verdict no">REFUSED</td>
+            <td>Gate 2. No <code>payroll:read</code>, so no SQL runs. Even if it were granted, gate 4 would strip every salary column.</td>
+          </tr>
+          <tr>
+            <td><strong>Grace</strong><br><code>hr</code></td>
+            <td class="verdict no">REFUSED</td>
+            <td>Gate 2. HR manages people and leave, not compensation.</td>
+          </tr>
+          <tr>
+            <td><strong>Alex</strong><br><code>admin</code></td>
+            <td class="verdict yes">ANSWERED</td>
+            <td>All four pass, for all 12 employees — but Alex cannot change anyone's access.</td>
+          </tr>
+          <tr>
+            <td><strong>Dana</strong><br><code>super_admin</code></td>
+            <td class="verdict yes">ANSWERED</td>
+            <td>All four pass, and Dana is the only one who can move the gates themselves.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede">
+      Now switch the question to <em>"Who is on leave right now?"</em> and the ordering
+      inverts: Grace answers it and Priya is refused, because HR holds
+      <code>leave:read</code> and a supervisor does not. There is no seniority ladder
+      here — each role is a different shape, not a bigger one.
+    </p>
+    <p class="lede">
+      That is the whole argument. Five people, one assistant, one database, five
+      different answers — and not one of those differences was decided by the model.
+    </p>
+  </section>
+
+  <section>
+    <h2>Worth noticing</h2>
+    <ul class="plain">
+      <li><strong>Every attempt is logged</strong> — allowed and denied alike, model refusals included. Ask an admin to show denied access attempts.</li>
+      <li><strong>Admin reads the rules; only super admin changes them.</strong> That split is the entire difference between the two roles.</li>
+      <li><strong>Even a super admin has a limit.</strong> Ask it to revoke its own payroll access and it refuses — the role is protected so nobody can lock everyone out.</li>
+      <li><strong>Agents are not gatekeepers.</strong> Ask the analyst agent for salaries and it <em>will</em> reach for the payroll tool. The tool is what stops it.</li>
+      <li><strong>Hiding the menu item is presentation, not security.</strong> An admin calling the console endpoints directly still gets <code>403</code>.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

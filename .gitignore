@@ -13,6 +13,17 @@ venv/
 node_modules/
 dist/
 
+# backend/static/ is deliberately NOT ignored. The Docker build writes the Vite
+# output there and would not need it committed, but App Runner's managed Python
+# runtime has no Node to run `vite build` with — so the built frontend is checked
+# in and `npm run build && cp -r frontend/dist backend/static` is a release step.
+
+# Python dependencies, installed here by the App Runner build command
+deps/
+
+# Generated during deployment — carries the account id
+deploy/aws/secrets-policy.json
+
 # Editors / OS
 .vscode/
 .idea/
