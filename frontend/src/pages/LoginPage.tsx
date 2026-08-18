@@ -51,8 +51,8 @@ export default function LoginPage({ onSignedIn }: { onSignedIn: (user: UserInfo)
               R
             </span>
             <span className="brand-text">
-              <span className="brand-name">RBAC</span>
-              <span className="brand-sub">Agentic access control</span>
+              <span className="brand-name">Role Based Access Control (RBAC)</span>
+              <span className="brand-sub">Through Agentic AI Powered By Claude</span>
             </span>
           </div>
 

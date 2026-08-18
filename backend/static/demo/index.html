@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>RBAC Demo — Scenarios & Pipeline</title>
+<title>Role Based Access Control (RBAC) Through Agentic AI Powered By Claude — Scenarios & Pipeline</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -132,7 +132,7 @@
     flex-wrap: wrap;
   }
 
-  .brand { display: flex; align-items: center; gap: 0.65rem; }
+  .brand { display: flex; align-items: flex-start; gap: 0.65rem; max-width: 26rem; }
 
   .brand-mark {
     display: grid;
@@ -149,13 +149,14 @@
   }
 
   .brand-text { display: flex; flex-direction: column; line-height: 1.25; }
-  .brand-name { font-family: var(--font-serif); font-size: 1.06rem; font-weight: 600; }
+  .brand-name { font-family: var(--font-serif); font-size: 1.02rem; font-weight: 600; }
   .brand-sub {
+    margin-top: 0.15rem;
     font-family: var(--font-mono);
-    font-size: 0.66rem;
-    letter-spacing: 0.1em;
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--ink-faint);
+    color: var(--clay-ink);
   }
 
   .head-right { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
@@ -650,8 +651,8 @@
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">R</span>
       <span class="brand-text">
-        <span class="brand-name">RBAC</span>
-        <span class="brand-sub">Agentic access control</span>
+        <span class="brand-name">Role Based Access Control (RBAC)</span>
+        <span class="brand-sub">Through Agentic AI Powered By Claude</span>
       </span>
     </div>
     <div class="head-right">
@@ -673,7 +674,7 @@
 
     <div class="lede">
       <h1>The model routes. It never authorizes.</h1>
-      <p>An internal HR assistant where five roles ask the same chat box for payroll, attendance, leave, analytics and audit data &mdash; and each one gets a different answer, because access control lives in the backend rather than in a prompt.</p>
+      <p><strong>Role Based Access Control (RBAC) through agentic AI, powered by Claude.</strong> An internal HR assistant where five roles ask the same chat box for payroll, attendance, leave, analytics and audit data &mdash; and each one gets a different answer, because access control lives in the backend rather than in a prompt.</p>
       <p>A planner agent reads the request and picks one of four specialist agents. Those agents choose a tool. Everything after that is plain Python reading permissions out of PostgreSQL.</p>
       <div class="thesis">
         <p>Every agent can see all seventeen tools and is instructed never to refuse. Refusing is not their job &mdash; the gates below decide, and they decide the same way whether the request came from the chat box or the console.</p>
@@ -1088,7 +1089,7 @@ FieldSpec(<span class="s">"net_pay"</span>,     <span class="s">"Net pay"</span>
 
     <div class="lede">
       <h1>One message, end to end</h1>
-      <p>Where the four gates sit, and what runs between them. The two agent stages are language-model calls; everything drawn with a solid outline is plain Python reading PostgreSQL, and cannot be argued with.</p>
+      <p><strong>Role Based Access Control (RBAC) through agentic AI, powered by Claude</strong> &mdash; this is where the four gates sit, and what runs between them. The two agent stages are language-model calls, Claude by default; everything drawn with a solid outline is plain Python reading PostgreSQL, and cannot be argued with.</p>
     </div>
 
     <div class="sec-head">

@@ -17,7 +17,10 @@ import type { ConversationSummary, UserInfo } from './types'
 const MANAGE_ACCESS = 'permissions:write'
 
 const PAGE_META: Record<Page, { title: string; sub: string }> = {
-  chat: { title: 'Chat', sub: 'Planner · role agent · tool · RBAC · PostgreSQL' },
+  chat: {
+    title: 'Chat',
+    sub: 'Planner · role agent · tool · RBAC · PostgreSQL — agentic AI powered by Claude',
+  },
   access: { title: 'Access control', sub: 'Tools · data · models, per role' },
 }
 
