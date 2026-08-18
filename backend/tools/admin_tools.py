@@ -505,7 +505,6 @@ def get_data_access(ctx: ToolContext, args: dict) -> ToolResult:
                     "fields_withheld": [
                         spec.key for spec in dataset.fields if spec.key in withheld
                     ],
-                    "fields_granted": sorted(granted),
                 }
             )
         rows.append({"role": role.name, "row_scope": _scope_of(ctx, role.id), "datasets": datasets})

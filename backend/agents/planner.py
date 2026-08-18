@@ -97,10 +97,24 @@ def make_plan(run: LLMRun, message: str) -> dict:
     return plan
 
 
-def _truncate(payload: str, limit: int = 12000) -> str:
+def _truncate(payload: str, limit: int = 40000) -> str:
+    """Cap the tool JSON handed to the responder, and say so when it is capped.
+
+    The cut lands mid-JSON, so whatever sorts last is simply absent. The admin
+    matrices are ordered by role name, and a silent cut drops the last role from
+    a table the reply then presents as the whole configuration — a missing row
+    reads as "this role has no access", which is a different claim from "not
+    shown". The limit sits well above the largest matrix the catalogue can
+    produce; the marker below is for the payloads that grow without bound,
+    chiefly the audit log.
+    """
     if len(payload) <= limit:
         return payload
-    return payload[:limit] + "\n… (truncated)"
+    return payload[:limit] + (
+        "\n… (TRUNCATED — the data above is cut off mid-record and is"
+        " missing entries. Say it was too long to show in full and that some"
+        " records are not listed; do not present it as the complete set.)"
+    )
 
 
 def write_reply(
